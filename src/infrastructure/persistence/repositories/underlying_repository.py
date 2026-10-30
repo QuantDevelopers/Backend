@@ -1,5 +1,6 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from src.domain.entities import UnderlyingAssetEntity
 from src.infrastructure.persistence.models.underlying import UnderlyingAssetModel
 

@@ -1,6 +1,8 @@
 from unittest.mock import AsyncMock
+
 import pytest
 from httpx import AsyncClient
+
 from src.container import Container
 from src.domain.entities import UnderlyingAssetEntity
 

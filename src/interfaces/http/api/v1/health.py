@@ -1,6 +1,8 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, status
 from fastapi.responses import JSONResponse
+
 from src.config import get_settings
 from src.infrastructure.database.session import check_db_connection
 from src.interfaces.http.schemas import HealthResponse
@@ -25,7 +27,7 @@ async def get_health():
         status=status_str,
         app=settings.app_name,
         database=db_status,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
     if not is_db_connected:

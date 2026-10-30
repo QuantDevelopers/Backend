@@ -1,11 +1,12 @@
 from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class HealthResponse(BaseModel):
-    status: str = Field(..., example="healthy")
-    app: str = Field(..., example="QuantBackend")
-    database: str = Field(..., example="connected")
+    status: str = Field(..., json_schema_extra={"example": "healthy"})
+    app: str = Field(..., json_schema_extra={"example": "QuantBackend"})
+    database: str = Field(..., json_schema_extra={"example": "connected"})
     timestamp: datetime
 
 
