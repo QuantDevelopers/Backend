@@ -59,7 +59,9 @@ coverage.xml
 .pytest_cache/
 
 # Raw Data and Crawl Dumps (Do NOT commit huge raw tick dumps to git)
-data/raw/
+data/raw/*
+!data/raw/samples/
+!data/raw/samples/**
 data/processed/
 *.sqlite3
 *.db
