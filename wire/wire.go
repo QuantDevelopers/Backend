@@ -19,7 +19,10 @@ import (
 	infrapostgres "github.com/QuantDevelopers/Backend/internal/infrastructure/repository/postgres"
 	"github.com/QuantDevelopers/Backend/internal/infrastructure/seed"
 	infratsetmc "github.com/QuantDevelopers/Backend/internal/infrastructure/tsetmc"
+	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/crawl"
 	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/health"
+	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/marketdata"
+	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/option"
 	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/underlying"
 	"github.com/QuantDevelopers/Backend/internal/presentation/middleware"
 	"github.com/QuantDevelopers/Backend/internal/presentation/routes"
@@ -36,26 +39,32 @@ var RepositoryProviderSet = wire.NewSet(
 	infrapostgres.NewUnderlyingRepository,
 	infrapostgres.NewOptionContractRepository,
 	infrapostgres.NewDailyHistoryRepository,
+	infrapostgres.NewTickRawRepository,
 	wire.Bind(new(domainpostgres.UnderlyingRepository), new(*infrapostgres.UnderlyingRepository)),
 	wire.Bind(new(domainpostgres.OptionContractRepository), new(*infrapostgres.OptionContractRepository)),
 	wire.Bind(new(domainpostgres.DailyHistoryRepository), new(*infrapostgres.DailyHistoryRepository)),
+	wire.Bind(new(domainpostgres.TickRawRepository), new(*infrapostgres.TickRawRepository)),
 )
 
 var ServiceProviderSet = wire.NewSet(
 	service.NewHealthService,
 	service.NewUnderlyingService,
 	service.NewOptionService,
+	service.NewMarketDataService,
 	service.NewDiscoveryService,
 	service.NewTickIngestorService,
 	service.NewBenchmarkService,
 	service.NewDailyHistoryCrawlerService,
+	service.NewProductionCrawlerService,
 	wire.Bind(new(usecase.HealthService), new(*service.HealthService)),
 	wire.Bind(new(usecase.UnderlyingService), new(*service.UnderlyingService)),
 	wire.Bind(new(usecase.OptionService), new(*service.OptionService)),
+	wire.Bind(new(usecase.MarketDataService), new(*service.MarketDataService)),
 	wire.Bind(new(usecase.DiscoveryService), new(*service.DiscoveryService)),
 	wire.Bind(new(usecase.TickIngestorService), new(*service.TickIngestorService)),
 	wire.Bind(new(usecase.BenchmarkService), new(*service.BenchmarkService)),
 	wire.Bind(new(usecase.DailyHistoryCrawlerService), new(*service.DailyHistoryCrawlerService)),
+	wire.Bind(new(usecase.ProductionCrawlerService), new(*service.ProductionCrawlerService)),
 )
 
 var AdapterProviderSet = wire.NewSet(
@@ -71,6 +80,9 @@ var AdapterProviderSet = wire.NewSet(
 var GeneralControllerProviderSet = wire.NewSet(
 	health.NewGeneralHealthController,
 	underlying.NewGeneralUnderlyingController,
+	option.NewGeneralOptionController,
+	marketdata.NewGeneralMarketDataController,
+	crawl.NewGeneralCrawlController,
 	wire.Struct(new(GeneralControllers), "*"),
 )
 
@@ -141,6 +153,10 @@ func ProvideNilDailyHistoryRepository() domainpostgres.DailyHistoryRepository {
 	return nil
 }
 
+func ProvideNilTickRawRepository() domainpostgres.TickRawRepository {
+	return nil
+}
+
 var ProviderSet = wire.NewSet(
 	DatabaseProviderSet,
 	RepositoryProviderSet,
@@ -169,10 +185,12 @@ var OfflineCrawlerProviderSet = wire.NewSet(
 	service.NewTickIngestorService,
 	service.NewBenchmarkService,
 	service.NewDailyHistoryCrawlerService,
+	service.NewProductionCrawlerService,
 	wire.Bind(new(usecase.DiscoveryService), new(*service.DiscoveryService)),
 	wire.Bind(new(usecase.TickIngestorService), new(*service.TickIngestorService)),
 	wire.Bind(new(usecase.BenchmarkService), new(*service.BenchmarkService)),
 	wire.Bind(new(usecase.DailyHistoryCrawlerService), new(*service.DailyHistoryCrawlerService)),
+	wire.Bind(new(usecase.ProductionCrawlerService), new(*service.ProductionCrawlerService)),
 	ProvideConstants,
 	ProvideLoggerConfig,
 	ProvideCrawlerConfig,
@@ -180,6 +198,7 @@ var OfflineCrawlerProviderSet = wire.NewSet(
 	ProvideNilUnderlyingRepository,
 	ProvideNilOptionContractRepository,
 	ProvideNilDailyHistoryRepository,
+	ProvideNilTickRawRepository,
 )
 
 type Database struct {
@@ -189,6 +208,9 @@ type Database struct {
 type GeneralControllers struct {
 	HealthController     *health.GeneralHealthController
 	UnderlyingController *underlying.GeneralUnderlyingController
+	OptionController     *option.GeneralOptionController
+	MarketDataController *marketdata.GeneralMarketDataController
+	CrawlController      *crawl.GeneralCrawlController
 }
 
 type Controllers struct {
@@ -253,6 +275,9 @@ func (a *Application) ToAppRouter() *routes.AppRouter {
 		Prometheus:           a.Middlewares.Prometheus,
 		HealthController:     a.Controllers.General.HealthController,
 		UnderlyingController: a.Controllers.General.UnderlyingController,
+		OptionController:     a.Controllers.General.OptionController,
+		MarketDataController: a.Controllers.General.MarketDataController,
+		CrawlController:      a.Controllers.General.CrawlController,
 	}
 }
 
@@ -270,6 +295,7 @@ type CrawlerApplication struct {
 	TickIngestorService usecase.TickIngestorService
 	BenchmarkService    usecase.BenchmarkService
 	DailyHistoryCrawler usecase.DailyHistoryCrawlerService
+	ProductionCrawler   usecase.ProductionCrawlerService
 }
 
 func NewCrawlerApplication(
@@ -278,6 +304,7 @@ func NewCrawlerApplication(
 	tickIngestorService usecase.TickIngestorService,
 	benchmarkService usecase.BenchmarkService,
 	dailyHistoryCrawler usecase.DailyHistoryCrawlerService,
+	productionCrawler usecase.ProductionCrawlerService,
 ) *CrawlerApplication {
 	return &CrawlerApplication{
 		Logger:              log,
@@ -285,6 +312,7 @@ func NewCrawlerApplication(
 		TickIngestorService: tickIngestorService,
 		BenchmarkService:    benchmarkService,
 		DailyHistoryCrawler: dailyHistoryCrawler,
+		ProductionCrawler:   productionCrawler,
 	}
 }
 

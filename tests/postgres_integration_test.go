@@ -137,4 +137,33 @@ func TestPostgresAutoMigrateSeedAndRepositories(t *testing.T) {
 	if len(dates) == 0 {
 		t.Fatal("expected at least 1 persisted trading date")
 	}
+
+	tickRawRepo := infrapostgres.NewTickRawRepository()
+	seq1 := 1
+	day := time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC)
+	ticks := []*entity.TickRaw{
+		{
+			InstrumentType: "UNDERLYING",
+			InstrumentID:   ahram.ID,
+			TradeDate:      day,
+			TradeTime:      "09:00:05",
+			SequenceNumber: &seq1,
+			Price:          72500,
+			Volume:         100,
+			RawPayload:     []byte(`{"nTran":1}`),
+		},
+	}
+	if _, err := tickRawRepo.ReplaceDayTicks(pgDB, "UNDERLYING", ahram.ID, day, ticks); err != nil {
+		t.Fatalf("ReplaceDayTicks initial: %v", err)
+	}
+	if _, err := tickRawRepo.ReplaceDayTicks(pgDB, "UNDERLYING", ahram.ID, day, ticks); err != nil {
+		t.Fatalf("ReplaceDayTicks idempotent: %v", err)
+	}
+	loadedTicks, totalTicks, err := tickRawRepo.GetByInstrumentAndDate(pgDB, "UNDERLYING", ahram.ID, day, 0, 10)
+	if err != nil {
+		t.Fatalf("GetByInstrumentAndDate: %v", err)
+	}
+	if totalTicks != 1 || len(loadedTicks) != 1 {
+		t.Fatalf("expected 1 idempotent tick_raw row, got total=%d len=%d", totalTicks, len(loadedTicks))
+	}
 }

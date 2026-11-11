@@ -10,13 +10,20 @@ import (
 
 	"github.com/QuantDevelopers/Backend/bootstrap"
 	_ "github.com/QuantDevelopers/Backend/docs/swagger"
+	commondto "github.com/QuantDevelopers/Backend/internal/application/dto/common"
+	crawlerdto "github.com/QuantDevelopers/Backend/internal/application/dto/crawler"
 	healthdto "github.com/QuantDevelopers/Backend/internal/application/dto/health"
+	marketdatadto "github.com/QuantDevelopers/Backend/internal/application/dto/marketdata"
+	optiondto "github.com/QuantDevelopers/Backend/internal/application/dto/option"
 	underlyingdto "github.com/QuantDevelopers/Backend/internal/application/dto/underlying"
 	"github.com/QuantDevelopers/Backend/internal/domain/exception"
 	infraloc "github.com/QuantDevelopers/Backend/internal/infrastructure/localization"
 	infralogger "github.com/QuantDevelopers/Backend/internal/infrastructure/logger"
 	inframetrics "github.com/QuantDevelopers/Backend/internal/infrastructure/metrics"
+	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/crawl"
 	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/health"
+	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/marketdata"
+	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/option"
 	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/underlying"
 	"github.com/QuantDevelopers/Backend/internal/presentation/middleware"
 	"github.com/QuantDevelopers/Backend/internal/presentation/routes"
@@ -37,6 +44,9 @@ type RouteTestSuite struct {
 	config            *bootstrap.Config
 	healthService     *serviceMocks.HealthServiceMock
 	underlyingService *serviceMocks.UnderlyingServiceMock
+	optionService     *serviceMocks.OptionServiceMock
+	marketDataService *serviceMocks.MarketDataServiceMock
+	crawlerService    *serviceMocks.ProductionCrawlerServiceMock
 	echoEngine        *echo.Echo
 }
 
@@ -44,6 +54,9 @@ func (s *RouteTestSuite) SetupTest() {
 	s.config = bootstrap.Run()
 	s.healthService = serviceMocks.NewHealthServiceMock()
 	s.underlyingService = serviceMocks.NewUnderlyingServiceMock()
+	s.optionService = serviceMocks.NewOptionServiceMock()
+	s.marketDataService = serviceMocks.NewMarketDataServiceMock()
+	s.crawlerService = serviceMocks.NewProductionCrawlerServiceMock()
 
 	log, err := infralogger.NewLogger(&bootstrap.Logger{
 		LogLevel:      "error",
@@ -65,6 +78,9 @@ func (s *RouteTestSuite) SetupTest() {
 		Prometheus:           middleware.NewPrometheusMiddleware(metricsClient),
 		HealthController:     health.NewGeneralHealthController(s.healthService),
 		UnderlyingController: underlying.NewGeneralUnderlyingController(s.underlyingService),
+		OptionController:     option.NewGeneralOptionController(s.optionService),
+		MarketDataController: marketdata.NewGeneralMarketDataController(s.marketDataService),
+		CrawlController:      crawl.NewGeneralCrawlController(&s.config.Env.Crawler, s.crawlerService),
 	}
 
 	s.echoEngine = echo.New()
@@ -220,6 +236,99 @@ func (s *RouteTestSuite) TestDocsAndMetricsRoutes() {
 		s.Equal(http.StatusMovedPermanently, rec.Code, "expected 301 redirect for %s", redirectPath)
 		s.Equal("/swagger/index.html", rec.Header().Get("Location"))
 	}
+}
+
+func (s *RouteTestSuite) TestExtendedV1Routes() {
+	s.Run("GET /api/v1/options paginated", func() {
+		s.optionService.On("ListOptionsPaginated", optiondto.ListOptionsQueryRequest{
+			ContractType: "CALL",
+			Page:         1,
+			PageSize:     10,
+		}).Return(optiondto.OptionListPaginatedResponse{
+			Items: []optiondto.OptionResponse{{ID: 1, SymbolFA: "ضهرم1033", ContractType: "CALL", StrikePrice: 50000}},
+			Pagination: commondto.PaginationMeta{
+				CurrentPage: 1,
+				PageSize:    10,
+				TotalItems:  1,
+				TotalPages:  1,
+			},
+		}, nil).Once()
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/options?contract_type=CALL&page=1&page_size=10", nil)
+		rec := httptest.NewRecorder()
+		s.echoEngine.ServeHTTP(rec, req)
+		s.Equal(http.StatusOK, rec.Code)
+		s.optionService.AssertExpectations(s.T())
+	})
+
+	s.Run("GET /api/v1/options/:symbol_fa and /underlyings/:symbol_fa/option-chain", func() {
+		s.optionService.On("GetOptionBySymbol", "ضهرم1033").Return(optiondto.OptionResponse{
+			ID:           1,
+			SymbolFA:     "ضهرم1033",
+			ContractType: "CALL",
+		}, nil).Once()
+
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/options/"+url.PathEscape("ضهرم1033"), nil)
+		rec := httptest.NewRecorder()
+		s.echoEngine.ServeHTTP(rec, req)
+		s.Equal(http.StatusOK, rec.Code)
+
+		s.optionService.On("GetOptionChain", optiondto.GetOptionChainRequest{SymbolFA: "اهرم"}).
+			Return(optiondto.OptionChainResponse{
+				Underlying:  underlyingdto.UnderlyingResponse{ID: 1, SymbolFA: "اهرم"},
+				Expirations: []string{"2027-01-13"},
+				TotalRows:   1,
+			}, nil).Once()
+
+		reqChain := httptest.NewRequest(http.MethodGet, "/api/v1/underlyings/"+url.PathEscape("اهرم")+"/option-chain", nil)
+		recChain := httptest.NewRecorder()
+		s.echoEngine.ServeHTTP(recChain, reqChain)
+		s.Equal(http.StatusOK, recChain.Code)
+		s.optionService.AssertExpectations(s.T())
+	})
+
+	s.Run("GET /api/v1/instruments/search, /daily-history, /ticks, and /crawl/status", func() {
+		s.marketDataService.On("SearchInstruments", marketdatadto.SearchInstrumentsRequest{Query: "اهرم"}).
+			Return(marketdatadto.InstrumentSearchResponse{Query: "اهرم", Total: 1}, nil).Once()
+
+		reqSearch := httptest.NewRequest(http.MethodGet, "/api/v1/instruments/search?q="+url.QueryEscape("اهرم"), nil)
+		recSearch := httptest.NewRecorder()
+		s.echoEngine.ServeHTTP(recSearch, reqSearch)
+		s.Equal(http.StatusOK, recSearch.Code)
+
+		s.marketDataService.On("GetDailyHistory", marketdatadto.GetDailyHistoryRequest{
+			InstrumentType: "underlying",
+			SymbolFA:       "اهرم",
+		}).Return(marketdatadto.DailyHistoryResponse{InstrumentType: "UNDERLYING", SymbolFA: "اهرم", Total: 0}, nil).Once()
+
+		reqDaily := httptest.NewRequest(http.MethodGet, "/api/v1/daily-history/underlying/"+url.PathEscape("اهرم"), nil)
+		recDaily := httptest.NewRecorder()
+		s.echoEngine.ServeHTTP(recDaily, reqDaily)
+		s.Equal(http.StatusOK, recDaily.Code)
+
+		s.marketDataService.On("GetTicks", marketdatadto.GetTicksRequest{
+			InstrumentType: "underlying",
+			SymbolFA:       "اهرم",
+		}).Return(marketdatadto.TicksPaginatedResponse{InstrumentType: "UNDERLYING", SymbolFA: "اهرم"}, nil).Once()
+
+		reqTicks := httptest.NewRequest(http.MethodGet, "/api/v1/ticks/underlying/"+url.PathEscape("اهرم"), nil)
+		recTicks := httptest.NewRecorder()
+		s.echoEngine.ServeHTTP(recTicks, reqTicks)
+		s.Equal(http.StatusOK, recTicks.Code)
+
+		s.crawlerService.On("GetStatus", "data").Return(&crawlerdto.CrawlStatusResponse{
+			SafeMaxRPS: 3.0,
+			Database:   crawlerdto.DBCoverageSummary{UnderlyingsTotal: 25},
+		}, nil).Once()
+
+		reqStatus := httptest.NewRequest(http.MethodGet, "/api/v1/crawl/status", nil)
+		recStatus := httptest.NewRecorder()
+		s.echoEngine.ServeHTTP(recStatus, reqStatus)
+		s.Equal(http.StatusOK, recStatus.Code)
+
+		s.marketDataService.AssertExpectations(s.T())
+		s.crawlerService.AssertExpectations(s.T())
+	})
 }
 
 func TestRouteSuite(t *testing.T) {

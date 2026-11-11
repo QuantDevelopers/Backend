@@ -110,7 +110,7 @@ make wire
 make swagger
 ```
 
-### ۵. اجرای بنچمارک (E1-2) و خزنده Go (E1-3، E2-1 و E2-2)
+### ۵. اجرای بنچمارک (E1-2) و خزنده Go (E1-3، E2-1، E2-2 و E2-3)
 ```bash
 # بنچمارک تعیین نرخ امن و تاخیر TSETMC (E1-2):
 go run ./cmd/benchmark -mode=sweep -rates=1.0,2.0,3.0,5.0 -requests=8 -out-dir=docs/benchmarks
@@ -126,6 +126,9 @@ go run ./cmd/crawler -mode=daily-history -persist-db -days=0
 
 # نمونه دریافت تیک خام + Manifest SHA-256 + پاک‌سازی با فیکسچر آفلاین (E2-2):
 go run ./cmd/crawler -mode=tick-sample -offline -ins-code=42511156565416187 -date=20261028
+
+# اجرای خزنده تولیدی هم‌زمان با صف، Worker Pool، Rate Limiter مشترک و Resume از روی Manifest (E2-3):
+go run ./cmd/crawler -mode=production -workers=3 -days-back=5 -resume=true -persist-db
 ```
 
 ---
@@ -141,8 +144,15 @@ go run ./cmd/crawler -mode=tick-sample -offline -ins-code=42511156565416187 -dat
 | `GET` | `/health` | وضعیت سلامت سرور و بررسی اتصال زنده به دیتابیس PostgreSQL |
 | `GET` | `/swagger/index.html` | رابط گرافیکی Swagger (Echo Swaggo) |
 | `GET` | `/swagger/doc.json` | فایل مشخصات استاندارد OpenAPI / Swagger JSON |
-| `GET` | `/api/v1/underlyings` | دریافت فهرست کامل ۲۵ دارایی پایه بازار اختیار معامله |
-| `GET` | `/api/v1/underlyings/{symbol_fa}` | دریافت اطلاعات یک دارایی پایه بر اساس نماد فارسی (مثل `اهرم` یا `خودرو`) |
+| `GET` | `/api/v1/underlyings` | دریافت فهرست کامل دارایی‌های پایه بازار اختیار معامله |
+| `GET` | `/api/v1/underlyings/{symbol_fa}` | دریافت اطلاعات یک دارایی پایه بر اساس نماد فارسی (مثل `اهرم`) |
+| `GET` | `/api/v1/underlyings/{symbol_fa}/option-chain` | دریافت ماتریس زنجیره اختیار (Call/Put در هر استرایک و سررسید + Moneyness) |
+| `GET` | `/api/v1/options` | فهرست صفحه‌بندی‌شده قراردادهای اختیار با فیلتر پایه، نوع، سررسید و جستجو |
+| `GET` | `/api/v1/options/{symbol_fa}` | دریافت جزئیات یک قرارداد اختیار بر اساس نماد فارسی (مثل `ضهرم1033`) |
+| `GET` | `/api/v1/instruments/search?q=...` | جستجوی یکپارچه در دارایی‌های پایه و قراردادهای اختیار |
+| `GET` | `/api/v1/daily-history/{instrument_type}/{symbol_fa}` | دریافت سابقه روزانه OHLCV و حجم برای `underlying` یا `option` |
+| `GET` | `/api/v1/ticks/{instrument_type}/{symbol_fa}` | دریافت تیک‌های درون‌روزی صفحه‌بندی‌شده بر اساس تاریخ (`date`) |
+| `GET` | `/api/v1/crawl/status` | وضعیت و پوشش خزشگر (آمار دیتابیس، Manifestها و آخرین اجرای خزش) |
 | `GET` | `/metrics` | خروجی متریک‌های Prometheus |
 
 پاسخ‌های API در قالب استاندارد پاکتی (`{"statusCode": ..., "message": ..., "data": ...}`) برگردانده می‌شوند و خطاها بر اساس هدر `Accept-Language` (`fa_IR` / `en_US`) بومی‌سازی می‌شوند.

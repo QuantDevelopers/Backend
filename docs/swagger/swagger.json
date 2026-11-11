@@ -14,6 +14,400 @@
     },
     "basePath": "/",
     "paths": {
+        "/api/v1/crawl/status": {
+            "get": {
+                "description": "Reports underlying/option registry coverage, daily_history/ticks_raw DB row counts, disk manifest statistics, and latest crawl run summary.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Crawler"
+                ],
+                "summary": "Get crawler coverage and progress status",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_crawler.CrawlStatusResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/daily-history/{instrument_type}/{symbol_fa}": {
+            "get": {
+                "description": "Fetches persisted daily OHLCV and volume records for an underlying or option symbol.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MarketData"
+                ],
+                "summary": "Get daily OHLCV history",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Instrument type (underlying or option)",
+                        "name": "instrument_type",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Persian symbol",
+                        "name": "symbol_fa",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Start trade date inclusive (YYYY-MM-DD or YYYYMMDD)",
+                        "name": "from",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "End trade date inclusive (YYYY-MM-DD or YYYYMMDD)",
+                        "name": "to",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max daily bars (default 100, max 1000)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.DailyHistoryResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/instruments/search": {
+            "get": {
+                "description": "Searches underlying assets and option contracts by normalized Persian symbol, name, TSETMC insCode, or ISIN.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MarketData"
+                ],
+                "summary": "Unified instrument search",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Search text (Persian symbol, name, or insCode)",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max results (default 20, max 100)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.InstrumentSearchResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/options": {
+            "get": {
+                "description": "Lists option contracts with optional underlying, contract_type, active status, expiry, search query, and pagination filters.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Options"
+                ],
+                "summary": "List option contracts",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Filter by underlying asset ID",
+                        "name": "underlying_id",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by underlying Persian symbol (e.g. اهرم)",
+                        "name": "symbol_ua",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "CALL or PUT",
+                        "name": "contract_type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "Active contracts only",
+                        "name": "is_active",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Expiration date (YYYY-MM-DD or YYYYMMDD)",
+                        "name": "expiration_date",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search symbol, name, TSETMC ID, or ISIN",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Items per page (default 25, max 200)",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionListPaginatedResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/options/{symbol_fa}": {
+            "get": {
+                "description": "Fetches detailed contract metadata identified by normalized Persian symbol_fa.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Options"
+                ],
+                "summary": "Get option contract by Persian symbol",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Persian option symbol (e.g. ضهرم1033)",
+                        "name": "symbol_fa",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/ticks/{instrument_type}/{symbol_fa}": {
+            "get": {
+                "description": "Fetches paginated intraday trade ticks ordered chronologically for a symbol and trading day.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "MarketData"
+                ],
+                "summary": "Get raw intraday ticks",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Instrument type (underlying or option)",
+                        "name": "instrument_type",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Persian symbol",
+                        "name": "symbol_fa",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Trading date (YYYY-MM-DD or YYYYMMDD; defaults to latest persisted day)",
+                        "name": "date",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Page number (default 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Ticks per page (default 100, max 500)",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.TicksPaginatedResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/underlyings": {
             "get": {
                 "description": "Returns all underlying assets seeded or discovered in PostgreSQL.",
@@ -111,6 +505,71 @@
                 }
             }
         },
+        "/api/v1/underlyings/{symbol_fa}/option-chain": {
+            "get": {
+                "description": "Returns paired Call/Put contracts grouped by expiration date and strike price, including moneyness relative to spot price.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Options"
+                ],
+                "summary": "Get underlying option chain matrix",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Persian underlying symbol (e.g. اهرم)",
+                        "name": "symbol_fa",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter chain to one expiration date (YYYY-MM-DD or YYYYMMDD)",
+                        "name": "expiration_date",
+                        "in": "query"
+                    },
+                    {
+                        "type": "number",
+                        "description": "Optional override underlying spot price (defaults to latest daily close)",
+                        "name": "spot_price",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionChainResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/health": {
             "get": {
                 "description": "Returns application health metadata and PostgreSQL database connectivity state.",
@@ -163,6 +622,139 @@
         }
     },
     "definitions": {
+        "github_com_QuantDevelopers_Backend_internal_application_dto_common.PaginationMeta": {
+            "type": "object",
+            "properties": {
+                "currentPage": {
+                    "type": "integer"
+                },
+                "hasNextPage": {
+                    "type": "boolean"
+                },
+                "hasPrevPage": {
+                    "type": "boolean"
+                },
+                "pageSize": {
+                    "type": "integer"
+                },
+                "totalItems": {
+                    "type": "integer"
+                },
+                "totalPages": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_crawler.CrawlStatusResponse": {
+            "type": "object",
+            "properties": {
+                "checked_at": {
+                    "type": "string"
+                },
+                "database": {
+                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_crawler.DBCoverageSummary"
+                },
+                "latest_job": {
+                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_crawler.ProductionCrawlReport"
+                },
+                "manifests": {
+                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_crawler.ManifestDiskSummary"
+                },
+                "safe_max_rps": {
+                    "type": "number"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_crawler.DBCoverageSummary": {
+            "type": "object",
+            "properties": {
+                "daily_history_rows": {
+                    "type": "integer"
+                },
+                "options_active": {
+                    "type": "integer"
+                },
+                "options_total": {
+                    "type": "integer"
+                },
+                "tick_raw_rows": {
+                    "type": "integer"
+                },
+                "underlyings_total": {
+                    "type": "integer"
+                },
+                "underlyings_with_tsetmc_id": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_crawler.ManifestDiskSummary": {
+            "type": "object",
+            "properties": {
+                "last_fetched_at": {
+                    "type": "string"
+                },
+                "manifests_empty": {
+                    "type": "integer"
+                },
+                "manifests_ok": {
+                    "type": "integer"
+                },
+                "manifests_total": {
+                    "type": "integer"
+                },
+                "raw_bytes_total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_crawler.ProductionCrawlReport": {
+            "type": "object",
+            "properties": {
+                "circuit_broken": {
+                    "type": "boolean"
+                },
+                "db_rows_saved": {
+                    "type": "integer"
+                },
+                "empty_days": {
+                    "type": "integer"
+                },
+                "errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "failed": {
+                    "type": "integer"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "job_id": {
+                    "type": "string"
+                },
+                "skipped_resume": {
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "succeeded": {
+                    "type": "integer"
+                },
+                "total_queued": {
+                    "type": "integer"
+                },
+                "total_records": {
+                    "type": "integer"
+                },
+                "workers": {
+                    "type": "integer"
+                }
+            }
+        },
         "github_com_QuantDevelopers_Backend_internal_application_dto_health.HealthResponse": {
             "type": "object",
             "properties": {
@@ -177,6 +769,287 @@
                 },
                 "timestamp": {
                     "type": "string"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.DailyHistoryItem": {
+            "type": "object",
+            "properties": {
+                "close_price": {
+                    "type": "number"
+                },
+                "high_price": {
+                    "type": "number"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "low_price": {
+                    "type": "number"
+                },
+                "open_interest": {
+                    "type": "integer"
+                },
+                "open_price": {
+                    "type": "number"
+                },
+                "settlement_price": {
+                    "type": "number"
+                },
+                "trade_count": {
+                    "type": "integer"
+                },
+                "trade_date": {
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                },
+                "volume": {
+                    "type": "integer"
+                },
+                "yesterday_price": {
+                    "type": "number"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.DailyHistoryResponse": {
+            "type": "object",
+            "properties": {
+                "instrument_id": {
+                    "type": "integer"
+                },
+                "instrument_type": {
+                    "type": "string"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.DailyHistoryItem"
+                    }
+                },
+                "symbol_fa": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
+                },
+                "tsetmc_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.InstrumentSearchItem": {
+            "type": "object",
+            "properties": {
+                "contract_type": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "instrument_type": {
+                    "type": "string"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "isin": {
+                    "type": "string"
+                },
+                "market_type": {
+                    "type": "string"
+                },
+                "name_fa": {
+                    "type": "string"
+                },
+                "strike_price": {
+                    "type": "number"
+                },
+                "symbol_fa": {
+                    "type": "string"
+                },
+                "tsetmc_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.InstrumentSearchResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.InstrumentSearchItem"
+                    }
+                },
+                "query": {
+                    "type": "string"
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.TickItem": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "integer"
+                },
+                "price": {
+                    "type": "number"
+                },
+                "sequence_number": {
+                    "type": "integer"
+                },
+                "trade_date": {
+                    "type": "string"
+                },
+                "trade_time": {
+                    "type": "string"
+                },
+                "volume": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.TicksPaginatedResponse": {
+            "type": "object",
+            "properties": {
+                "instrument_id": {
+                    "type": "integer"
+                },
+                "instrument_type": {
+                    "type": "string"
+                },
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.TickItem"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_common.PaginationMeta"
+                },
+                "symbol_fa": {
+                    "type": "string"
+                },
+                "trade_date": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionChainResponse": {
+            "type": "object",
+            "properties": {
+                "expirations": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "rows": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionChainRow"
+                    }
+                },
+                "spot_price": {
+                    "type": "number"
+                },
+                "total_rows": {
+                    "type": "integer"
+                },
+                "underlying": {
+                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingResponse"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionChainRow": {
+            "type": "object",
+            "properties": {
+                "call": {
+                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionResponse"
+                },
+                "call_moneyness": {
+                    "type": "string"
+                },
+                "contract_size": {
+                    "type": "integer"
+                },
+                "expiration_date": {
+                    "type": "string"
+                },
+                "put": {
+                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionResponse"
+                },
+                "put_moneyness": {
+                    "type": "string"
+                },
+                "strike_price": {
+                    "type": "number"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionListPaginatedResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionResponse"
+                    }
+                },
+                "pagination": {
+                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_common.PaginationMeta"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionResponse": {
+            "type": "object",
+            "properties": {
+                "begin_date": {
+                    "type": "string"
+                },
+                "contract_size": {
+                    "type": "integer"
+                },
+                "contract_type": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "expiration_date": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "isin": {
+                    "type": "string"
+                },
+                "name_fa": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "strike_price": {
+                    "type": "number"
+                },
+                "symbol_fa": {
+                    "type": "string"
+                },
+                "tsetmc_id": {
+                    "type": "string"
+                },
+                "underlying_asset_id": {
+                    "type": "integer"
                 }
             }
         },

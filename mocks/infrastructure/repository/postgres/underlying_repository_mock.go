@@ -22,6 +22,14 @@ func (m *UnderlyingRepositoryMock) GetAll(db database.Database) ([]*entity.Under
 	return args.Get(0).([]*entity.UnderlyingAsset), args.Error(1)
 }
 
+func (m *UnderlyingRepositoryMock) Search(db database.Database, query string, limit int) ([]*entity.UnderlyingAsset, error) {
+	args := m.Called(db, query, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*entity.UnderlyingAsset), args.Error(1)
+}
+
 func (m *UnderlyingRepositoryMock) GetBySymbol(db database.Database, symbolFA string) (*entity.UnderlyingAsset, error) {
 	args := m.Called(db, symbolFA)
 	if args.Get(0) == nil {

@@ -30,3 +30,10 @@ type DailyHistoryCrawlerService interface {
 	ParseDailyPayload(raw []byte, instrumentType string, instrumentID uint) ([]*entity.DailyHistory, error)
 	Crawl(ctx context.Context, opts crawlerdto.DailyHistoryCrawlOptions) (*crawlerdto.DailyHistoryCrawlResult, error)
 }
+
+// ProductionCrawlerService orchestrates E2-3 queued multi-worker tick crawling, resume, and status reporting.
+type ProductionCrawlerService interface {
+	BuildQueue(opts crawlerdto.ProductionCrawlOptions) ([]crawlerdto.TickCrawlTask, int, error)
+	Run(ctx context.Context, opts crawlerdto.ProductionCrawlOptions) (*crawlerdto.ProductionCrawlReport, error)
+	GetStatus(dataDir string) (*crawlerdto.CrawlStatusResponse, error)
+}

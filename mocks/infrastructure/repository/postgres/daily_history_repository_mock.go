@@ -35,6 +35,18 @@ func (m *DailyHistoryRepositoryMock) GetByInstrument(
 	return args.Get(0).([]*entity.DailyHistory), args.Error(1)
 }
 
+func (m *DailyHistoryRepositoryMock) List(
+	db database.Database,
+	filter domainrepo.DailyHistoryFilter,
+	limit int,
+) ([]*entity.DailyHistory, error) {
+	args := m.Called(db, filter, limit)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*entity.DailyHistory), args.Error(1)
+}
+
 func (m *DailyHistoryRepositoryMock) GetTradingDates(
 	db database.Database,
 	instrumentType string,

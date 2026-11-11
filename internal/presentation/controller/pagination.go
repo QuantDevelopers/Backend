@@ -1,5 +1,7 @@
 package controller
 
+import commondto "github.com/QuantDevelopers/Backend/internal/application/dto/common"
+
 func GetOffsetLimit(page, pageSize, defaultPage, defaultPageSize int) (int, int) {
 	if page <= 0 {
 		page = defaultPage
@@ -11,14 +13,7 @@ func GetOffsetLimit(page, pageSize, defaultPage, defaultPageSize int) (int, int)
 	return (page - 1) * pageSize, pageSize
 }
 
-type PaginationMeta struct {
-	CurrentPage int   `json:"currentPage"`
-	PageSize    int   `json:"pageSize"`
-	TotalItems  int64 `json:"totalItems"`
-	TotalPages  int   `json:"totalPages"`
-	HasNextPage bool  `json:"hasNextPage"`
-	HasPrevPage bool  `json:"hasPrevPage"`
-}
+type PaginationMeta = commondto.PaginationMeta
 
 type PaginatedResponse[T any] struct {
 	Data       []T             `json:"data"`
@@ -26,26 +21,9 @@ type PaginatedResponse[T any] struct {
 }
 
 func NewPaginatedResponse[T any](data []T, totalItems int64, offset, limit int) *PaginatedResponse[T] {
-	pageSize := limit
-	currentPage := 1
-	if limit > 0 {
-		currentPage = int(offset/limit) + 1
-	}
-
-	totalPages := 0
-	if pageSize > 0 {
-		totalPages = int((totalItems + int64(pageSize) - 1) / int64(pageSize))
-	}
-
+	meta := commondto.BuildPaginationMeta(totalItems, offset, limit)
 	return &PaginatedResponse[T]{
-		Data: data,
-		Pagination: &PaginationMeta{
-			CurrentPage: currentPage,
-			PageSize:    pageSize,
-			TotalItems:  totalItems,
-			TotalPages:  totalPages,
-			HasNextPage: currentPage < totalPages,
-			HasPrevPage: currentPage > 1,
-		},
+		Data:       data,
+		Pagination: &meta,
 	}
 }

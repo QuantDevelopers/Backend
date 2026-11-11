@@ -84,9 +84,36 @@ func (repo *DailyHistoryRepository) GetByInstrument(
 	instrumentID uint,
 	limit int,
 ) ([]*entity.DailyHistory, error) {
-	query := db.GetDB().
-		Where("instrument_type = ? AND instrument_id = ?", strings.ToUpper(strings.TrimSpace(instrumentType)), instrumentID).
-		Order("trade_date DESC")
+	normType := strings.ToUpper(strings.TrimSpace(instrumentType))
+	return repo.List(db, domainrepo.DailyHistoryFilter{
+		InstrumentType: &normType,
+		InstrumentID:   &instrumentID,
+	}, limit)
+}
+
+func (repo *DailyHistoryRepository) List(
+	db database.Database,
+	filter domainrepo.DailyHistoryFilter,
+	limit int,
+) ([]*entity.DailyHistory, error) {
+	query := db.GetDB().Model(&entity.DailyHistory{})
+	if filter.InstrumentType != nil {
+		query = query.Where("instrument_type = ?", strings.ToUpper(strings.TrimSpace(*filter.InstrumentType)))
+	}
+	if filter.InstrumentID != nil {
+		query = query.Where("instrument_id = ?", *filter.InstrumentID)
+	}
+	if filter.FromDate != nil {
+		query = query.Where("trade_date >= ?", normalizeTradeDay(*filter.FromDate))
+	}
+	if filter.ToDate != nil {
+		query = query.Where("trade_date <= ?", normalizeTradeDay(*filter.ToDate))
+	}
+	if filter.OnlyWithTrades {
+		query = query.Where("trade_count > 0 OR volume > 0")
+	}
+
+	query = query.Order("trade_date DESC")
 	if limit > 0 {
 		query = query.Limit(limit)
 	}

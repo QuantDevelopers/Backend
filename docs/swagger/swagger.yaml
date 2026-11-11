@@ -2,6 +2,93 @@ basePath: /
 consumes:
 - application/json
 definitions:
+  github_com_QuantDevelopers_Backend_internal_application_dto_common.PaginationMeta:
+    properties:
+      currentPage:
+        type: integer
+      hasNextPage:
+        type: boolean
+      hasPrevPage:
+        type: boolean
+      pageSize:
+        type: integer
+      totalItems:
+        type: integer
+      totalPages:
+        type: integer
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_crawler.CrawlStatusResponse:
+    properties:
+      checked_at:
+        type: string
+      database:
+        $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_crawler.DBCoverageSummary'
+      latest_job:
+        $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_crawler.ProductionCrawlReport'
+      manifests:
+        $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_crawler.ManifestDiskSummary'
+      safe_max_rps:
+        type: number
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_crawler.DBCoverageSummary:
+    properties:
+      daily_history_rows:
+        type: integer
+      options_active:
+        type: integer
+      options_total:
+        type: integer
+      tick_raw_rows:
+        type: integer
+      underlyings_total:
+        type: integer
+      underlyings_with_tsetmc_id:
+        type: integer
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_crawler.ManifestDiskSummary:
+    properties:
+      last_fetched_at:
+        type: string
+      manifests_empty:
+        type: integer
+      manifests_ok:
+        type: integer
+      manifests_total:
+        type: integer
+      raw_bytes_total:
+        type: integer
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_crawler.ProductionCrawlReport:
+    properties:
+      circuit_broken:
+        type: boolean
+      db_rows_saved:
+        type: integer
+      empty_days:
+        type: integer
+      errors:
+        items:
+          type: string
+        type: array
+      failed:
+        type: integer
+      finished_at:
+        type: string
+      job_id:
+        type: string
+      skipped_resume:
+        type: integer
+      started_at:
+        type: string
+      succeeded:
+        type: integer
+      total_queued:
+        type: integer
+      total_records:
+        type: integer
+      workers:
+        type: integer
+    type: object
   github_com_QuantDevelopers_Backend_internal_application_dto_health.HealthResponse:
     properties:
       app:
@@ -12,6 +99,190 @@ definitions:
         type: string
       timestamp:
         type: string
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.DailyHistoryItem:
+    properties:
+      close_price:
+        type: number
+      high_price:
+        type: number
+      id:
+        type: integer
+      low_price:
+        type: number
+      open_interest:
+        type: integer
+      open_price:
+        type: number
+      settlement_price:
+        type: number
+      trade_count:
+        type: integer
+      trade_date:
+        type: string
+      value:
+        type: number
+      volume:
+        type: integer
+      yesterday_price:
+        type: number
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.DailyHistoryResponse:
+    properties:
+      instrument_id:
+        type: integer
+      instrument_type:
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.DailyHistoryItem'
+        type: array
+      symbol_fa:
+        type: string
+      total:
+        type: integer
+      tsetmc_id:
+        type: string
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.InstrumentSearchItem:
+    properties:
+      contract_type:
+        type: string
+      id:
+        type: integer
+      instrument_type:
+        type: string
+      is_active:
+        type: boolean
+      isin:
+        type: string
+      market_type:
+        type: string
+      name_fa:
+        type: string
+      strike_price:
+        type: number
+      symbol_fa:
+        type: string
+      tsetmc_id:
+        type: string
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.InstrumentSearchResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.InstrumentSearchItem'
+        type: array
+      query:
+        type: string
+      total:
+        type: integer
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.TickItem:
+    properties:
+      id:
+        type: integer
+      price:
+        type: number
+      sequence_number:
+        type: integer
+      trade_date:
+        type: string
+      trade_time:
+        type: string
+      volume:
+        type: integer
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.TicksPaginatedResponse:
+    properties:
+      instrument_id:
+        type: integer
+      instrument_type:
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.TickItem'
+        type: array
+      pagination:
+        $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_common.PaginationMeta'
+      symbol_fa:
+        type: string
+      trade_date:
+        type: string
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionChainResponse:
+    properties:
+      expirations:
+        items:
+          type: string
+        type: array
+      rows:
+        items:
+          $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionChainRow'
+        type: array
+      spot_price:
+        type: number
+      total_rows:
+        type: integer
+      underlying:
+        $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingResponse'
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionChainRow:
+    properties:
+      call:
+        $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionResponse'
+      call_moneyness:
+        type: string
+      contract_size:
+        type: integer
+      expiration_date:
+        type: string
+      put:
+        $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionResponse'
+      put_moneyness:
+        type: string
+      strike_price:
+        type: number
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionListPaginatedResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionResponse'
+        type: array
+      pagination:
+        $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_common.PaginationMeta'
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionResponse:
+    properties:
+      begin_date:
+        type: string
+      contract_size:
+        type: integer
+      contract_type:
+        type: string
+      created_at:
+        type: string
+      expiration_date:
+        type: string
+      id:
+        type: integer
+      is_active:
+        type: boolean
+      isin:
+        type: string
+      name_fa:
+        type: string
+      status:
+        type: string
+      strike_price:
+        type: number
+      symbol_fa:
+        type: string
+      tsetmc_id:
+        type: string
+      underlying_asset_id:
+        type: integer
     type: object
   github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingListResponse:
     properties:
@@ -54,6 +325,256 @@ info:
   title: QuantBackend API
   version: 1.0.0
 paths:
+  /api/v1/crawl/status:
+    get:
+      description: Reports underlying/option registry coverage, daily_history/ticks_raw
+        DB row counts, disk manifest statistics, and latest crawl run summary.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_crawler.CrawlStatusResponse'
+              type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+      summary: Get crawler coverage and progress status
+      tags:
+      - Crawler
+  /api/v1/daily-history/{instrument_type}/{symbol_fa}:
+    get:
+      description: Fetches persisted daily OHLCV and volume records for an underlying
+        or option symbol.
+      parameters:
+      - description: Instrument type (underlying or option)
+        in: path
+        name: instrument_type
+        required: true
+        type: string
+      - description: Persian symbol
+        in: path
+        name: symbol_fa
+        required: true
+        type: string
+      - description: Start trade date inclusive (YYYY-MM-DD or YYYYMMDD)
+        in: query
+        name: from
+        type: string
+      - description: End trade date inclusive (YYYY-MM-DD or YYYYMMDD)
+        in: query
+        name: to
+        type: string
+      - description: Max daily bars (default 100, max 1000)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.DailyHistoryResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+      summary: Get daily OHLCV history
+      tags:
+      - MarketData
+  /api/v1/instruments/search:
+    get:
+      description: Searches underlying assets and option contracts by normalized Persian
+        symbol, name, TSETMC insCode, or ISIN.
+      parameters:
+      - description: Search text (Persian symbol, name, or insCode)
+        in: query
+        name: q
+        required: true
+        type: string
+      - description: Max results (default 20, max 100)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.InstrumentSearchResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+      summary: Unified instrument search
+      tags:
+      - MarketData
+  /api/v1/options:
+    get:
+      description: Lists option contracts with optional underlying, contract_type,
+        active status, expiry, search query, and pagination filters.
+      parameters:
+      - description: Filter by underlying asset ID
+        in: query
+        name: underlying_id
+        type: integer
+      - description: Filter by underlying Persian symbol (e.g. اهرم)
+        in: query
+        name: symbol_ua
+        type: string
+      - description: CALL or PUT
+        in: query
+        name: contract_type
+        type: string
+      - description: Active contracts only
+        in: query
+        name: is_active
+        type: boolean
+      - description: Expiration date (YYYY-MM-DD or YYYYMMDD)
+        in: query
+        name: expiration_date
+        type: string
+      - description: Search symbol, name, TSETMC ID, or ISIN
+        in: query
+        name: q
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Items per page (default 25, max 200)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionListPaginatedResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+      summary: List option contracts
+      tags:
+      - Options
+  /api/v1/options/{symbol_fa}:
+    get:
+      description: Fetches detailed contract metadata identified by normalized Persian
+        symbol_fa.
+      parameters:
+      - description: Persian option symbol (e.g. ضهرم1033)
+        in: path
+        name: symbol_fa
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+      summary: Get option contract by Persian symbol
+      tags:
+      - Options
+  /api/v1/ticks/{instrument_type}/{symbol_fa}:
+    get:
+      description: Fetches paginated intraday trade ticks ordered chronologically
+        for a symbol and trading day.
+      parameters:
+      - description: Instrument type (underlying or option)
+        in: path
+        name: instrument_type
+        required: true
+        type: string
+      - description: Persian symbol
+        in: path
+        name: symbol_fa
+        required: true
+        type: string
+      - description: Trading date (YYYY-MM-DD or YYYYMMDD; defaults to latest persisted
+          day)
+        in: query
+        name: date
+        type: string
+      - description: Page number (default 1)
+        in: query
+        name: page
+        type: integer
+      - description: Ticks per page (default 100, max 500)
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_marketdata.TicksPaginatedResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+      summary: Get raw intraday ticks
+      tags:
+      - MarketData
   /api/v1/underlyings:
     get:
       description: Returns all underlying assets seeded or discovered in PostgreSQL.
@@ -113,6 +634,48 @@ paths:
       summary: Get underlying asset by Persian symbol
       tags:
       - Underlyings
+  /api/v1/underlyings/{symbol_fa}/option-chain:
+    get:
+      description: Returns paired Call/Put contracts grouped by expiration date and
+        strike price, including moneyness relative to spot price.
+      parameters:
+      - description: Persian underlying symbol (e.g. اهرم)
+        in: path
+        name: symbol_fa
+        required: true
+        type: string
+      - description: Filter chain to one expiration date (YYYY-MM-DD or YYYYMMDD)
+        in: query
+        name: expiration_date
+        type: string
+      - description: Optional override underlying spot price (defaults to latest daily
+          close)
+        in: query
+        name: spot_price
+        type: number
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_option.OptionChainResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+      summary: Get underlying option chain matrix
+      tags:
+      - Options
   /health:
     get:
       description: Returns application health metadata and PostgreSQL database connectivity
