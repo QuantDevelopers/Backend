@@ -1,0 +1,146 @@
+basePath: /
+consumes:
+- application/json
+definitions:
+  github_com_QuantDevelopers_Backend_internal_application_dto_health.HealthResponse:
+    properties:
+      app:
+        type: string
+      database:
+        type: string
+      status:
+        type: string
+      timestamp:
+        type: string
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingListResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingResponse'
+        type: array
+      total:
+        type: integer
+    type: object
+  github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: integer
+      is_active:
+        type: boolean
+      market_type:
+        type: string
+      name_fa:
+        type: string
+      symbol_fa:
+        type: string
+      tsetmc_id:
+        type: string
+    type: object
+  github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse:
+    properties:
+      data: {}
+      message:
+        type: string
+      statusCode:
+        type: integer
+    type: object
+info:
+  contact: {}
+  description: Iranian Equity & Options Quantitative Analytics Backend (Echo + Clean
+    Architecture).
+  title: QuantBackend API
+  version: 1.0.0
+paths:
+  /api/v1/underlyings:
+    get:
+      description: Returns all underlying assets seeded or discovered in PostgreSQL.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingListResponse'
+              type: object
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+      summary: List underlying assets
+      tags:
+      - Underlyings
+  /api/v1/underlyings/{symbol_fa}:
+    get:
+      description: Fetches a single underlying asset identified by its normalized
+        Persian symbol_fa.
+      parameters:
+      - description: Persian underlying symbol (e.g. اهرم)
+        in: path
+        name: symbol_fa
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingResponse'
+              type: object
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+      summary: Get underlying asset by Persian symbol
+      tags:
+      - Underlyings
+  /health:
+    get:
+      description: Returns application health metadata and PostgreSQL database connectivity
+        state.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_health.HealthResponse'
+              type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            allOf:
+            - $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse'
+            - properties:
+                data:
+                  $ref: '#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_health.HealthResponse'
+              type: object
+      summary: Service health check
+      tags:
+      - Health
+produces:
+- application/json
+swagger: "2.0"

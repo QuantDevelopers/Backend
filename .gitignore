@@ -1,34 +1,22 @@
-# Python
+# Go Binaries & Build Artifacts
+/bin/
+/quant-server
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+coverage.html
+
+# Legacy Python artifacts (in case local venv/caches remain)
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual Environments
 .venv/
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+.pytest_cache/
+.ruff_cache/
 
 # Environment Variables & Secrets
 .env
@@ -45,19 +33,6 @@ venv.bak/
 *~
 .DS_Store
 
-# Testing & Coverage
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-
 # Raw Data and Crawl Dumps (Do NOT commit huge raw tick dumps to git)
 data/raw/*
 !data/raw/samples/
@@ -68,7 +43,6 @@ data/processed/
 
 # Docker
 *.docker.log
-
 
 # docs
 بکلاگ فاز ۱ — کارتهای Trello.md

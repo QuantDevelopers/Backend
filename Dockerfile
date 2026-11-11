@@ -1,38 +1,51 @@
 # ==============================================================================
-# QuantBackend Dockerfile
+# QuantBackend Dockerfile (Go + Echo + Wire + GORM)
 # ==============================================================================
-FROM python:3.11-slim AS runtime
-
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /app
 
-# Install system dependencies (curl for healthchecks, netcat for service wait)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    netcat-openbsd \
-    build-essential \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+ARG GOPROXY=https://goproxy.io,https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 
-# Install python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Cache Go module downloads
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Copy application source code
-COPY src/ ./src/
-COPY pyproject.toml alembic.ini* ./
+# Copy full source and build static binary
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/quant-server ./cmd/app && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/quant-crawler ./cmd/crawler
 
-# Expose FastAPI port
+# ==============================================================================
+# Minimal Runtime Image (Alpine with ArvanCloud Mirror)
+# ==============================================================================
+FROM alpine:3.21 AS runtime
+
+ARG ALPINE_MIRROR=http://mirror.arvancloud.ir/alpine
+
+WORKDIR /app
+
+# Replace Alpine APK repositories with ArvanCloud mirror (override ALPINE_MIRROR="" to use upstream)
+RUN if [ -n "$ALPINE_MIRROR" ]; then \
+      ALPINE_VER="v$(cut -d. -f1,2 /etc/alpine-release)" && \
+      sed -i 's/^/#/' /etc/apk/repositories && \
+      printf '%s/%s/main\n%s/%s/community\n' "$ALPINE_MIRROR" "$ALPINE_VER" "$ALPINE_MIRROR" "$ALPINE_VER" >> /etc/apk/repositories; \
+    fi && \
+    apk update && \
+    apk add --no-cache ca-certificates curl tzdata && \
+    adduser -D -u 10001 appuser && \
+    mkdir -p /app/data/raw /app/data/registry /app/data/manifests/ticks /app/data/clean/ticks && \
+    chown -R appuser:appuser /app
+
+COPY --from=builder /app/quant-server /app/quant-server
+COPY --from=builder /app/quant-crawler /app/quant-crawler
+
+USER appuser
+
 EXPOSE 8000
 
-# Health check probe
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Start uvicorn server
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/quant-server"]
