@@ -46,21 +46,29 @@ func (recovery *RecoveryMiddleware) Recovery(next echo.HandlerFunc) echo.Handler
 func (recovery *RecoveryMiddleware) handleRecoveredError(ctx echo.Context, err error) {
 	transKey := recovery.constants.Context.Translator
 
-	switch typedErr := err.(type) {
-	case exception.ValidationErrors:
-		handleValidationError(ctx, typedErr, transKey)
-	case exception.BindingError:
-		handleBindingError(ctx, typedErr, transKey)
-	case *exception.RateLimitError:
-		handleRateLimitError(ctx, *typedErr, transKey)
-	case exception.ConflictErrors:
-		handleConflictError(ctx, typedErr, transKey)
-	case *exception.AuthError:
-		handleAuthError(ctx, *typedErr, transKey)
-	case exception.NotFoundError:
-		handleNotFoundError(ctx, typedErr, transKey)
-	case exception.ForbiddenError:
-		handleForbiddenError(ctx, typedErr, transKey)
+	var validationErrors exception.ValidationErrors
+	var bindingError exception.BindingError
+	var rateLimitError *exception.RateLimitError
+	var conflictErrors exception.ConflictErrors
+	var authError *exception.AuthError
+	var notFoundError exception.NotFoundError
+	var forbiddenError exception.ForbiddenError
+
+	switch {
+	case errors.As(err, &validationErrors):
+		handleValidationError(ctx, validationErrors, transKey)
+	case errors.As(err, &bindingError):
+		handleBindingError(ctx, bindingError, transKey)
+	case errors.As(err, &rateLimitError):
+		handleRateLimitError(ctx, *rateLimitError, transKey)
+	case errors.As(err, &conflictErrors):
+		handleConflictError(ctx, conflictErrors, transKey)
+	case errors.As(err, &authError):
+		handleAuthError(ctx, *authError, transKey)
+	case errors.As(err, &notFoundError):
+		handleNotFoundError(ctx, notFoundError, transKey)
+	case errors.As(err, &forbiddenError):
+		handleForbiddenError(ctx, forbiddenError, transKey)
 	default:
 		recovery.unhandledErrors(ctx, err, transKey)
 	}

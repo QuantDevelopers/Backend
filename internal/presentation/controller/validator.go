@@ -24,7 +24,8 @@ func Validated[T any](ctx echo.Context) T {
 	}
 
 	if err := validate.Struct(params); err != nil {
-		if validationErrors, ok := err.(validator.ValidationErrors); ok {
+		var validationErrors validator.ValidationErrors
+		if errors.As(err, &validationErrors) {
 			panic(formatValidationErrors[T](validationErrors))
 		}
 		panic(err)
