@@ -92,6 +92,23 @@ func (s *UnderlyingServiceTestSuite) TestGetUnderlyingBySymbol() {
 		s.underlyingRepository.AssertExpectations(s.T())
 	})
 
+	s.Run("success - normalizes arabic kaf and yeh", func() {
+		asset := &entity.UnderlyingAsset{
+			Model:      database.Model{ID: 3},
+			SymbolFA:   "تاصیکو",
+			NameFA:     "تاپیکو",
+			MarketType: "Bourse",
+			IsActive:   true,
+		}
+		s.underlyingRepository.On("GetBySymbol", s.db, "تاصیکو").Return(asset, nil).Once()
+
+		res, err := s.underlyingService.GetUnderlyingBySymbol("تاصيكو")
+
+		s.NoError(err)
+		s.Equal("تاصیکو", res.SymbolFA)
+		s.underlyingRepository.AssertExpectations(s.T())
+	})
+
 	s.Run("error - symbol not found returns NotFoundError", func() {
 		s.underlyingRepository.On("GetBySymbol", s.db, "ناموجود").Return(nil, nil).Once()
 

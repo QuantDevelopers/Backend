@@ -11,13 +11,14 @@ import (
 	domainlogger "github.com/QuantDevelopers/Backend/internal/domain/logger"
 	domainmetrics "github.com/QuantDevelopers/Backend/internal/domain/metrics"
 	domainpostgres "github.com/QuantDevelopers/Backend/internal/domain/repository/postgres"
+	domaintsetmc "github.com/QuantDevelopers/Backend/internal/domain/tsetmc"
 	"github.com/QuantDevelopers/Backend/internal/infrastructure/database"
 	infraloc "github.com/QuantDevelopers/Backend/internal/infrastructure/localization"
 	infralogger "github.com/QuantDevelopers/Backend/internal/infrastructure/logger"
 	inframetrics "github.com/QuantDevelopers/Backend/internal/infrastructure/metrics"
 	infrapostgres "github.com/QuantDevelopers/Backend/internal/infrastructure/repository/postgres"
 	"github.com/QuantDevelopers/Backend/internal/infrastructure/seed"
-	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/docs"
+	infratsetmc "github.com/QuantDevelopers/Backend/internal/infrastructure/tsetmc"
 	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/health"
 	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/underlying"
 	"github.com/QuantDevelopers/Backend/internal/presentation/middleware"
@@ -42,23 +43,28 @@ var ServiceProviderSet = wire.NewSet(
 	service.NewHealthService,
 	service.NewUnderlyingService,
 	service.NewOptionService,
+	service.NewDiscoveryService,
+	service.NewTickIngestorService,
 	wire.Bind(new(usecase.HealthService), new(*service.HealthService)),
 	wire.Bind(new(usecase.UnderlyingService), new(*service.UnderlyingService)),
 	wire.Bind(new(usecase.OptionService), new(*service.OptionService)),
+	wire.Bind(new(usecase.DiscoveryService), new(*service.DiscoveryService)),
+	wire.Bind(new(usecase.TickIngestorService), new(*service.TickIngestorService)),
 )
 
 var AdapterProviderSet = wire.NewSet(
 	infraloc.NewTranslationService,
 	infralogger.NewLogger,
 	inframetrics.NewPrometheusMetrics,
+	infratsetmc.NewHTTPClientFromConfig,
 	wire.Bind(new(domainlogger.Logger), new(*infralogger.Logger)),
 	wire.Bind(new(domainmetrics.MetricsClient), new(*inframetrics.PrometheusMetrics)),
+	wire.Bind(new(domaintsetmc.Client), new(*infratsetmc.HTTPClient)),
 )
 
 var GeneralControllerProviderSet = wire.NewSet(
 	health.NewGeneralHealthController,
 	underlying.NewGeneralUnderlyingController,
-	docs.NewGeneralDocsController,
 	wire.Struct(new(GeneralControllers), "*"),
 )
 
@@ -109,6 +115,22 @@ func ProvideMetrics(container *bootstrap.Config) *bootstrap.Metrics {
 	return &container.Constants.Metrics
 }
 
+func ProvideCrawlerConfig(container *bootstrap.Config) *bootstrap.Crawler {
+	return &container.Env.Crawler
+}
+
+func ProvideNilDatabase() database.Database {
+	return nil
+}
+
+func ProvideNilUnderlyingRepository() domainpostgres.UnderlyingRepository {
+	return nil
+}
+
+func ProvideNilOptionContractRepository() domainpostgres.OptionContractRepository {
+	return nil
+}
+
 var ProviderSet = wire.NewSet(
 	DatabaseProviderSet,
 	RepositoryProviderSet,
@@ -125,6 +147,24 @@ var ProviderSet = wire.NewSet(
 	ProvideDBConfig,
 	ProvideCORSConfig,
 	ProvideMetrics,
+	ProvideCrawlerConfig,
+)
+
+var OfflineCrawlerProviderSet = wire.NewSet(
+	infralogger.NewLogger,
+	infratsetmc.NewHTTPClientFromConfig,
+	wire.Bind(new(domainlogger.Logger), new(*infralogger.Logger)),
+	wire.Bind(new(domaintsetmc.Client), new(*infratsetmc.HTTPClient)),
+	service.NewDiscoveryService,
+	service.NewTickIngestorService,
+	wire.Bind(new(usecase.DiscoveryService), new(*service.DiscoveryService)),
+	wire.Bind(new(usecase.TickIngestorService), new(*service.TickIngestorService)),
+	ProvideConstants,
+	ProvideLoggerConfig,
+	ProvideCrawlerConfig,
+	ProvideNilDatabase,
+	ProvideNilUnderlyingRepository,
+	ProvideNilOptionContractRepository,
 )
 
 type Database struct {
@@ -134,7 +174,6 @@ type Database struct {
 type GeneralControllers struct {
 	HealthController     *health.GeneralHealthController
 	UnderlyingController *underlying.GeneralUnderlyingController
-	DocsController       *docs.GeneralDocsController
 }
 
 type Controllers struct {
@@ -199,7 +238,6 @@ func (a *Application) ToAppRouter() *routes.AppRouter {
 		Prometheus:           a.Middlewares.Prometheus,
 		HealthController:     a.Controllers.General.HealthController,
 		UnderlyingController: a.Controllers.General.UnderlyingController,
-		DocsController:       a.Controllers.General.DocsController,
 	}
 }
 
@@ -209,4 +247,38 @@ func InitializeApplication(container *bootstrap.Config) (*Application, error) {
 		NewApplication,
 	)
 	return &Application{}, nil
+}
+
+type CrawlerApplication struct {
+	Logger              domainlogger.Logger
+	DiscoveryService    usecase.DiscoveryService
+	TickIngestorService usecase.TickIngestorService
+}
+
+func NewCrawlerApplication(
+	log domainlogger.Logger,
+	discoveryService usecase.DiscoveryService,
+	tickIngestorService usecase.TickIngestorService,
+) *CrawlerApplication {
+	return &CrawlerApplication{
+		Logger:              log,
+		DiscoveryService:    discoveryService,
+		TickIngestorService: tickIngestorService,
+	}
+}
+
+func InitializeCrawlerApplication(container *bootstrap.Config) (*CrawlerApplication, error) {
+	wire.Build(
+		ProviderSet,
+		NewCrawlerApplication,
+	)
+	return &CrawlerApplication{}, nil
+}
+
+func InitializeOfflineCrawlerApplication(container *bootstrap.Config) (*CrawlerApplication, error) {
+	wire.Build(
+		OfflineCrawlerProviderSet,
+		NewCrawlerApplication,
+	)
+	return &CrawlerApplication{}, nil
 }

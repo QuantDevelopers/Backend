@@ -9,13 +9,13 @@ import (
 	"time"
 
 	"github.com/QuantDevelopers/Backend/bootstrap"
+	_ "github.com/QuantDevelopers/Backend/docs/swagger"
 	healthdto "github.com/QuantDevelopers/Backend/internal/application/dto/health"
 	underlyingdto "github.com/QuantDevelopers/Backend/internal/application/dto/underlying"
 	"github.com/QuantDevelopers/Backend/internal/domain/exception"
 	infraloc "github.com/QuantDevelopers/Backend/internal/infrastructure/localization"
 	infralogger "github.com/QuantDevelopers/Backend/internal/infrastructure/logger"
 	inframetrics "github.com/QuantDevelopers/Backend/internal/infrastructure/metrics"
-	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/docs"
 	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/health"
 	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/underlying"
 	"github.com/QuantDevelopers/Backend/internal/presentation/middleware"
@@ -65,7 +65,6 @@ func (s *RouteTestSuite) SetupTest() {
 		Prometheus:           middleware.NewPrometheusMiddleware(metricsClient),
 		HealthController:     health.NewGeneralHealthController(s.healthService),
 		UnderlyingController: underlying.NewGeneralUnderlyingController(s.underlyingService),
-		DocsController:       docs.NewGeneralDocsController(&s.config.Env.Server),
 	}
 
 	s.echoEngine = echo.New()
@@ -207,11 +206,19 @@ func (s *RouteTestSuite) TestUnderlyingRoutes() {
 }
 
 func (s *RouteTestSuite) TestDocsAndMetricsRoutes() {
-	for _, path := range []string{"/openapi.json", "/docs", "/redoc", "/metrics"} {
+	for _, path := range []string{"/swagger/index.html", "/swagger/doc.json", "/metrics"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		rec := httptest.NewRecorder()
 		s.echoEngine.ServeHTTP(rec, req)
 		s.Equal(http.StatusOK, rec.Code, "expected 200 for %s", path)
+	}
+
+	for _, redirectPath := range []string{"/docs", "/swagger"} {
+		req := httptest.NewRequest(http.MethodGet, redirectPath, nil)
+		rec := httptest.NewRecorder()
+		s.echoEngine.ServeHTTP(rec, req)
+		s.Equal(http.StatusMovedPermanently, rec.Code, "expected 301 redirect for %s", redirectPath)
+		s.Equal("/swagger/index.html", rec.Header().Get("Location"))
 	}
 }
 

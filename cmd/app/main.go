@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/QuantDevelopers/Backend/bootstrap"
+	_ "github.com/QuantDevelopers/Backend/docs/swagger"
 	"github.com/QuantDevelopers/Backend/internal/domain/entity"
 	domainlogger "github.com/QuantDevelopers/Backend/internal/domain/logger"
 	"github.com/QuantDevelopers/Backend/internal/presentation/routes"
@@ -18,6 +19,12 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+// @title QuantBackend API
+// @version 1.0.0
+// @description Iranian Equity & Options Quantitative Analytics Backend (Echo + Clean Architecture).
+// @BasePath /
+// @accept json
+// @produce json
 func main() {
 	seedOnly := flag.Bool("seed-only", false, "run database AutoMigrate and seeders, then exit")
 	flag.Parse()

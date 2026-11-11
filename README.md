@@ -13,19 +13,22 @@ QuantBackend/
 ├── bootstrap/                     # مدیریت متغیرهای محیطی (Env) و ثابت‌های سیستم (Constants)
 ├── cmd/
 │   ├── app/main.go                # نقطه ورود سرور Echo (و اجرای --seed-only برای مهاجرت و بذر اولیه)
-│   └── benchmark/main.go          # اسکریپت بنچ‌مارک تاخیر و دریافت نمونه داده‌های خام TSETMC
+│   ├── benchmark/main.go          # اسکریپت بنچ‌مارک تاخیر و دریافت نمونه داده‌های خام TSETMC
+│   └── crawler/main.go            # CLI خزنده Go (کشف قراردادهای E1-3 و نمونه دریافت تیک E2-2)
 ├── wire/
 │   ├── wire.go                    # تعریف ProviderSetها و تزریق وابستگی با Google Wire
 │   └── wire_gen.go                # کد تولیدشده خودکار توسط Wire
 ├── internal/
-│   ├── domain/                    # لایه دامنه خالص (entity, enum, exception, logger, localization, metrics, options, repository)
+│   ├── domain/                    # لایه دامنه خالص (entity, enum, exception, logger, localization, metrics, options, repository, text, tsetmc)
 │   ├── application/               # لایه موارد کاربرد (dto, usecase, service + testify/suite)
-│   ├── infrastructure/            # لایه زیرساخت (database/GORM, zap logger, localization, prometheus, repository, seed)
+│   ├── infrastructure/            # لایه زیرساخت (database/GORM, zap logger, localization, prometheus, repository, seed, tsetmc)
 │   └── presentation/              # لایه ارائه HTTP با Echo (controller, middleware, routes)
 ├── mocks/                         # ماک‌های Testify برای تست‌های واحد ایزوله
 ├── monitoring/prometheus/         # تنظیمات اسکریپ متریک‌ها با Prometheus
-├── tests/                         # تست‌های موجودیت‌ها، کوک‌بوک و یکپارچگی PostgreSQL
-├── docs/                          # مستندات، ERD و کوک‌بوک اندپوینت‌های بورس
+├── tests/                         # تست‌های موجودیت‌ها، فیکسچرهای آفلاین TSETMC و یکپارچگی PostgreSQL
+├── docs/
+│   ├── swagger/                   # مستندات تولیدشده OpenAPI/Swagger توسط swaggo/swag
+│   └── *.md                       # مستندات دامنه، ERD و کوک‌بوک اندپوینت‌های بورس
 ├── Makefile                       # دستورات کمکی توسعه، تست، سید و داکر
 ├── docker-compose.yml             # هماهنگ‌سازی سرویس‌های postgres، seed، backend و پروفایل monitoring
 ├── Dockerfile                     # بیلد چندمرحله‌ای Go + تصویر Alpine با پشتیبانی از مخزن آروان‌کلاد
@@ -101,23 +104,37 @@ go run ./cmd/app --seed-only
 go run ./cmd/app
 ```
 
-### ۴. بازتولید کد تزریق وابستگی Wire (در صورت تغییر وابستگی‌ها)
+### ۴. بازتولید کد تزریق وابستگی Wire و مستندات Swagger
 ```bash
 make wire
+make swagger
+```
+
+### ۵. اجرای خزنده Go (E1-3 کشف قراردادها و E2-2 دریافت تیک)
+```bash
+# کشف قراردادهای فعال و دارایی‌های پایه با فیکسچر آفلاین (E1-3):
+go run ./cmd/crawler -mode=discover -offline
+
+# کشف زنده از TSETMC و ذخیره‌سازی در PostgreSQL:
+go run ./cmd/crawler -mode=discover -persist-db
+
+# نمونه دریافت تیک خام + Manifest SHA-256 + پاک‌سازی با فیکسچر آفلاین (E2-2):
+go run ./cmd/crawler -mode=tick-sample -offline -ins-code=42511156565416187 -date=20261028
 ```
 
 ---
 
 ## 📡 اندپوینت‌های در دسترس (API Endpoints)
 
-* **مستندات تعاملی Swagger:** [http://localhost:8000/docs](http://localhost:8000/docs)
-* **مستندات ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
-* **مشخصات OpenAPI JSON:** [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
+* **مستندات تعاملی Echo Swagger UI:** [http://localhost:8000/swagger/index.html](http://localhost:8000/swagger/index.html) (یا ریدایرکت از `/docs`)
+* **مشخصات OpenAPI (Swagger 2.0 JSON):** [http://localhost:8000/swagger/doc.json](http://localhost:8000/swagger/doc.json)
 * **متریک‌های Prometheus:** [http://localhost:8000/metrics](http://localhost:8000/metrics)
 
 | متد | مسیر (Route) | توضیحات |
 | :---: | :--- | :--- |
 | `GET` | `/health` | وضعیت سلامت سرور و بررسی اتصال زنده به دیتابیس PostgreSQL |
+| `GET` | `/swagger/index.html` | رابط گرافیکی Swagger (Echo Swaggo) |
+| `GET` | `/swagger/doc.json` | فایل مشخصات استاندارد OpenAPI / Swagger JSON |
 | `GET` | `/api/v1/underlyings` | دریافت فهرست کامل ۲۵ دارایی پایه بازار اختیار معامله |
 | `GET` | `/api/v1/underlyings/{symbol_fa}` | دریافت اطلاعات یک دارایی پایه بر اساس نماد فارسی (مثل `اهرم` یا `خودرو`) |
 | `GET` | `/metrics` | خروجی متریک‌های Prometheus |
@@ -131,7 +148,7 @@ make wire
 پایپ‌لاین [ci.yml](.github/workflows/ci.yml) روی هر **Pull Request** به‌صورت خودکار موارد زیر را اجرا می‌کند:
 1. **`lint`:** بررسی `go mod verify`، یکدستی فرمت با `gofmt`، تحلیل `go vet` و اجرای `golangci-lint` (v2).
 2. **`test`:** اجرای تمام تست‌های واحد و تست یکپارچگی PostgreSQL 16 با `-race` و تولید گزارش پوشش کد (`coverage.out`).
-3. **`build`:** کامپایل باینری‌های `cmd/app` و `cmd/benchmark`، اعتبارسنجی `docker compose config` و تست بیلد `Dockerfile`.
+3. **`build`:** کامپایل باینری‌های `cmd/app`، `cmd/benchmark` و `cmd/crawler`، اعتبارسنجی `docker compose config` و تست بیلد `Dockerfile`.
 
 ### اجرای محلی تست‌ها و بررسی کیفیت:
 ```bash

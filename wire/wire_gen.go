@@ -14,13 +14,14 @@ import (
 	logger2 "github.com/QuantDevelopers/Backend/internal/domain/logger"
 	metrics2 "github.com/QuantDevelopers/Backend/internal/domain/metrics"
 	postgres2 "github.com/QuantDevelopers/Backend/internal/domain/repository/postgres"
+	tsetmc2 "github.com/QuantDevelopers/Backend/internal/domain/tsetmc"
 	"github.com/QuantDevelopers/Backend/internal/infrastructure/database"
 	"github.com/QuantDevelopers/Backend/internal/infrastructure/localization"
 	"github.com/QuantDevelopers/Backend/internal/infrastructure/logger"
 	"github.com/QuantDevelopers/Backend/internal/infrastructure/metrics"
 	"github.com/QuantDevelopers/Backend/internal/infrastructure/repository/postgres"
 	"github.com/QuantDevelopers/Backend/internal/infrastructure/seed"
-	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/docs"
+	"github.com/QuantDevelopers/Backend/internal/infrastructure/tsetmc"
 	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/health"
 	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/underlying"
 	"github.com/QuantDevelopers/Backend/internal/presentation/middleware"
@@ -46,11 +47,9 @@ func InitializeApplication(container *bootstrap.Config) (*Application, error) {
 	underlyingRepository := postgres.NewUnderlyingRepository()
 	underlyingService := service.NewUnderlyingService(constants, underlyingRepository, postgresDatabase)
 	generalUnderlyingController := underlying.NewGeneralUnderlyingController(underlyingService)
-	generalDocsController := docs.NewGeneralDocsController(server)
 	generalControllers := &GeneralControllers{
 		HealthController:     generalHealthController,
 		UnderlyingController: generalUnderlyingController,
-		DocsController:       generalDocsController,
 	}
 	controllers := &Controllers{
 		General: generalControllers,
@@ -87,17 +86,57 @@ func InitializeApplication(container *bootstrap.Config) (*Application, error) {
 	return application, nil
 }
 
+func InitializeCrawlerApplication(container *bootstrap.Config) (*CrawlerApplication, error) {
+	bootstrapLogger := ProvideLoggerConfig(container)
+	constants := ProvideConstants(container)
+	loggerLogger, err := logger.NewLogger(bootstrapLogger, constants)
+	if err != nil {
+		return nil, err
+	}
+	crawler := ProvideCrawlerConfig(container)
+	httpClient := tsetmc.NewHTTPClientFromConfig(crawler, loggerLogger)
+	underlyingRepository := postgres.NewUnderlyingRepository()
+	optionContractRepository := postgres.NewOptionContractRepository()
+	bootstrapDatabase := ProvideDBConfig(container)
+	postgresDatabase, err := database.NewPostgresDatabase(bootstrapDatabase)
+	if err != nil {
+		return nil, err
+	}
+	discoveryService := service.NewDiscoveryService(httpClient, underlyingRepository, optionContractRepository, postgresDatabase, loggerLogger)
+	tickIngestorService := service.NewTickIngestorService(httpClient, loggerLogger)
+	crawlerApplication := NewCrawlerApplication(loggerLogger, discoveryService, tickIngestorService)
+	return crawlerApplication, nil
+}
+
+func InitializeOfflineCrawlerApplication(container *bootstrap.Config) (*CrawlerApplication, error) {
+	bootstrapLogger := ProvideLoggerConfig(container)
+	constants := ProvideConstants(container)
+	loggerLogger, err := logger.NewLogger(bootstrapLogger, constants)
+	if err != nil {
+		return nil, err
+	}
+	crawler := ProvideCrawlerConfig(container)
+	httpClient := tsetmc.NewHTTPClientFromConfig(crawler, loggerLogger)
+	underlyingRepository := ProvideNilUnderlyingRepository()
+	optionContractRepository := ProvideNilOptionContractRepository()
+	databaseDatabase := ProvideNilDatabase()
+	discoveryService := service.NewDiscoveryService(httpClient, underlyingRepository, optionContractRepository, databaseDatabase, loggerLogger)
+	tickIngestorService := service.NewTickIngestorService(httpClient, loggerLogger)
+	crawlerApplication := NewCrawlerApplication(loggerLogger, discoveryService, tickIngestorService)
+	return crawlerApplication, nil
+}
+
 // wire.go:
 
 var DatabaseProviderSet = wire.NewSet(database.NewPostgresDatabase, wire.Bind(new(database.Database), new(*database.PostgresDatabase)), wire.Struct(new(Database), "*"))
 
 var RepositoryProviderSet = wire.NewSet(postgres.NewUnderlyingRepository, postgres.NewOptionContractRepository, wire.Bind(new(postgres2.UnderlyingRepository), new(*postgres.UnderlyingRepository)), wire.Bind(new(postgres2.OptionContractRepository), new(*postgres.OptionContractRepository)))
 
-var ServiceProviderSet = wire.NewSet(service.NewHealthService, service.NewUnderlyingService, service.NewOptionService, wire.Bind(new(usecase.HealthService), new(*service.HealthService)), wire.Bind(new(usecase.UnderlyingService), new(*service.UnderlyingService)), wire.Bind(new(usecase.OptionService), new(*service.OptionService)))
+var ServiceProviderSet = wire.NewSet(service.NewHealthService, service.NewUnderlyingService, service.NewOptionService, service.NewDiscoveryService, service.NewTickIngestorService, wire.Bind(new(usecase.HealthService), new(*service.HealthService)), wire.Bind(new(usecase.UnderlyingService), new(*service.UnderlyingService)), wire.Bind(new(usecase.OptionService), new(*service.OptionService)), wire.Bind(new(usecase.DiscoveryService), new(*service.DiscoveryService)), wire.Bind(new(usecase.TickIngestorService), new(*service.TickIngestorService)))
 
-var AdapterProviderSet = wire.NewSet(localization.NewTranslationService, logger.NewLogger, metrics.NewPrometheusMetrics, wire.Bind(new(logger2.Logger), new(*logger.Logger)), wire.Bind(new(metrics2.MetricsClient), new(*metrics.PrometheusMetrics)))
+var AdapterProviderSet = wire.NewSet(localization.NewTranslationService, logger.NewLogger, metrics.NewPrometheusMetrics, tsetmc.NewHTTPClientFromConfig, wire.Bind(new(logger2.Logger), new(*logger.Logger)), wire.Bind(new(metrics2.MetricsClient), new(*metrics.PrometheusMetrics)), wire.Bind(new(tsetmc2.Client), new(*tsetmc.HTTPClient)))
 
-var GeneralControllerProviderSet = wire.NewSet(health.NewGeneralHealthController, underlying.NewGeneralUnderlyingController, docs.NewGeneralDocsController, wire.Struct(new(GeneralControllers), "*"))
+var GeneralControllerProviderSet = wire.NewSet(health.NewGeneralHealthController, underlying.NewGeneralUnderlyingController, wire.Struct(new(GeneralControllers), "*"))
 
 var ControllersProviderSet = wire.NewSet(wire.Struct(new(Controllers), "*"))
 
@@ -133,6 +172,22 @@ func ProvideMetrics(container *bootstrap.Config) *bootstrap.Metrics {
 	return &container.Constants.Metrics
 }
 
+func ProvideCrawlerConfig(container *bootstrap.Config) *bootstrap.Crawler {
+	return &container.Env.Crawler
+}
+
+func ProvideNilDatabase() database.Database {
+	return nil
+}
+
+func ProvideNilUnderlyingRepository() postgres2.UnderlyingRepository {
+	return nil
+}
+
+func ProvideNilOptionContractRepository() postgres2.OptionContractRepository {
+	return nil
+}
+
 var ProviderSet = wire.NewSet(
 	DatabaseProviderSet,
 	RepositoryProviderSet,
@@ -149,6 +204,15 @@ var ProviderSet = wire.NewSet(
 	ProvideDBConfig,
 	ProvideCORSConfig,
 	ProvideMetrics,
+	ProvideCrawlerConfig,
+)
+
+var OfflineCrawlerProviderSet = wire.NewSet(logger.NewLogger, tsetmc.NewHTTPClientFromConfig, wire.Bind(new(logger2.Logger), new(*logger.Logger)), wire.Bind(new(tsetmc2.Client), new(*tsetmc.HTTPClient)), service.NewDiscoveryService, service.NewTickIngestorService, wire.Bind(new(usecase.DiscoveryService), new(*service.DiscoveryService)), wire.Bind(new(usecase.TickIngestorService), new(*service.TickIngestorService)), ProvideConstants,
+	ProvideLoggerConfig,
+	ProvideCrawlerConfig,
+	ProvideNilDatabase,
+	ProvideNilUnderlyingRepository,
+	ProvideNilOptionContractRepository,
 )
 
 type Database struct {
@@ -158,7 +222,6 @@ type Database struct {
 type GeneralControllers struct {
 	HealthController     *health.GeneralHealthController
 	UnderlyingController *underlying.GeneralUnderlyingController
-	DocsController       *docs.GeneralDocsController
 }
 
 type Controllers struct {
@@ -222,6 +285,23 @@ func (a *Application) ToAppRouter() *routes.AppRouter {
 		Prometheus:           a.Middlewares.Prometheus,
 		HealthController:     a.Controllers.General.HealthController,
 		UnderlyingController: a.Controllers.General.UnderlyingController,
-		DocsController:       a.Controllers.General.DocsController,
+	}
+}
+
+type CrawlerApplication struct {
+	Logger              logger2.Logger
+	DiscoveryService    usecase.DiscoveryService
+	TickIngestorService usecase.TickIngestorService
+}
+
+func NewCrawlerApplication(
+	log logger2.Logger,
+	discoveryService usecase.DiscoveryService,
+	tickIngestorService usecase.TickIngestorService,
+) *CrawlerApplication {
+	return &CrawlerApplication{
+		Logger:              log,
+		DiscoveryService:    discoveryService,
+		TickIngestorService: tickIngestorService,
 	}
 }

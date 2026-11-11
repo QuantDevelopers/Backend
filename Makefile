@@ -21,6 +21,9 @@ ps:
 wire:
 	wire ./wire
 
+swagger:
+	swag init -g cmd/app/main.go -o docs/swagger --parseInternal --parseDependency
+
 test:
 	go test -v -race ./...
 
@@ -38,6 +41,7 @@ lint:
 build:
 	go build -o bin/quant-server ./cmd/app
 	go build -o bin/quant-benchmark ./cmd/benchmark
+	go build -o bin/quant-crawler ./cmd/crawler
 
 log:
 	git log --oneline -n 10

@@ -7,13 +7,13 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-type singleMessageResponse struct {
+type SingleMessageResponse struct {
 	Status  int         `json:"statusCode"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data"`
 }
 
-type multipleMessageResponse struct {
+type MultipleMessageResponse struct {
 	Status   int                          `json:"statusCode"`
 	Messages map[string]map[string]string `json:"messages"`
 	Data     interface{}                  `json:"data"`
@@ -30,13 +30,13 @@ func Response[T string | map[string]map[string]string](ctx echo.Context, statusC
 		if msg == "" {
 			msg = statusText
 		}
-		return ctx.JSON(statusCode, singleMessageResponse{
+		return ctx.JSON(statusCode, SingleMessageResponse{
 			Status:  statusCode,
 			Message: msg,
 			Data:    data,
 		})
 	case map[string]map[string]string:
-		return ctx.JSON(statusCode, multipleMessageResponse{
+		return ctx.JSON(statusCode, MultipleMessageResponse{
 			Status:   statusCode,
 			Messages: msg,
 			Data:     data,

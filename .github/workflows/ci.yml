@@ -106,6 +106,7 @@ jobs:
         run: |
           go build -o bin/quant-server ./cmd/app
           go build -o bin/quant-benchmark ./cmd/benchmark
+          go build -o bin/quant-crawler ./cmd/crawler
 
       - name: Validate Docker Compose configuration
         run: docker compose config -q

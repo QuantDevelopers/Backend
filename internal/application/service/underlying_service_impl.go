@@ -5,6 +5,7 @@ import (
 	underlyingdto "github.com/QuantDevelopers/Backend/internal/application/dto/underlying"
 	"github.com/QuantDevelopers/Backend/internal/domain/exception"
 	"github.com/QuantDevelopers/Backend/internal/domain/repository/postgres"
+	domaintext "github.com/QuantDevelopers/Backend/internal/domain/text"
 	"github.com/QuantDevelopers/Backend/internal/infrastructure/database"
 )
 
@@ -52,7 +53,8 @@ func (s *UnderlyingService) GetUnderlyings() (underlyingdto.UnderlyingListRespon
 }
 
 func (s *UnderlyingService) GetUnderlyingBySymbol(symbolFA string) (underlyingdto.UnderlyingResponse, error) {
-	asset, err := s.underlyingRepository.GetBySymbol(s.db, symbolFA)
+	normalizedSymbol := domaintext.NormalizePersian(symbolFA)
+	asset, err := s.underlyingRepository.GetBySymbol(s.db, normalizedSymbol)
 	if err != nil {
 		return underlyingdto.UnderlyingResponse{}, err
 	}

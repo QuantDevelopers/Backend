@@ -19,6 +19,14 @@ func NewGeneralUnderlyingController(underlyingService usecase.UnderlyingService)
 	}
 }
 
+// GetUnderlyings lists all underlying assets configured in the system.
+// @Summary List underlying assets
+// @Description Returns all underlying assets seeded or discovered in PostgreSQL.
+// @Tags Underlyings
+// @Produce json
+// @Success 200 {object} controller.SingleMessageResponse{data=underlyingdto.UnderlyingListResponse}
+// @Failure 500 {object} controller.SingleMessageResponse
+// @Router /api/v1/underlyings [get]
 func (uc *GeneralUnderlyingController) GetUnderlyings(ctx echo.Context) error {
 	underlyings, err := uc.underlyingService.GetUnderlyings()
 	if err != nil {
@@ -27,6 +35,17 @@ func (uc *GeneralUnderlyingController) GetUnderlyings(ctx echo.Context) error {
 	return controller.Response(ctx, http.StatusOK, "", underlyings)
 }
 
+// GetUnderlyingBySymbol returns a single underlying asset matching the Persian symbol.
+// @Summary Get underlying asset by Persian symbol
+// @Description Fetches a single underlying asset identified by its normalized Persian symbol_fa.
+// @Tags Underlyings
+// @Produce json
+// @Param symbol_fa path string true "Persian underlying symbol (e.g. اهرم)"
+// @Success 200 {object} controller.SingleMessageResponse{data=underlyingdto.UnderlyingResponse}
+// @Failure 400 {object} controller.SingleMessageResponse
+// @Failure 404 {object} controller.SingleMessageResponse
+// @Failure 500 {object} controller.SingleMessageResponse
+// @Router /api/v1/underlyings/{symbol_fa} [get]
 func (uc *GeneralUnderlyingController) GetUnderlyingBySymbol(ctx echo.Context) error {
 	params := controller.Validated[underlyingdto.GetUnderlyingBySymbolRequest](ctx)
 	asset, err := uc.underlyingService.GetUnderlyingBySymbol(params.SymbolFA)

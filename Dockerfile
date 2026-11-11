@@ -14,7 +14,8 @@ RUN go mod download
 
 # Copy full source and build static binary
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/quant-server ./cmd/app
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/quant-server ./cmd/app && \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/quant-crawler ./cmd/crawler
 
 # ==============================================================================
 # Minimal Runtime Image (Alpine with ArvanCloud Mirror)
@@ -34,10 +35,11 @@ RUN if [ -n "$ALPINE_MIRROR" ]; then \
     apk update && \
     apk add --no-cache ca-certificates curl tzdata && \
     adduser -D -u 10001 appuser && \
-    mkdir -p /app/data/raw && \
+    mkdir -p /app/data/raw /app/data/registry /app/data/manifests/ticks /app/data/clean/ticks && \
     chown -R appuser:appuser /app
 
 COPY --from=builder /app/quant-server /app/quant-server
+COPY --from=builder /app/quant-crawler /app/quant-crawler
 
 USER appuser
 

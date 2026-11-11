@@ -1,0 +1,236 @@
+{
+    "consumes": [
+        "application/json"
+    ],
+    "produces": [
+        "application/json"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "Iranian Equity \u0026 Options Quantitative Analytics Backend (Echo + Clean Architecture).",
+        "title": "QuantBackend API",
+        "contact": {},
+        "version": "1.0.0"
+    },
+    "basePath": "/",
+    "paths": {
+        "/api/v1/underlyings": {
+            "get": {
+                "description": "Returns all underlying assets seeded or discovered in PostgreSQL.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Underlyings"
+                ],
+                "summary": "List underlying assets",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingListResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/underlyings/{symbol_fa}": {
+            "get": {
+                "description": "Fetches a single underlying asset identified by its normalized Persian symbol_fa.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Underlyings"
+                ],
+                "summary": "Get underlying asset by Persian symbol",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Persian underlying symbol (e.g. اهرم)",
+                        "name": "symbol_fa",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/health": {
+            "get": {
+                "description": "Returns application health metadata and PostgreSQL database connectivity state.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Health"
+                ],
+                "summary": "Service health check",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_health.HealthResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_health.HealthResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "github_com_QuantDevelopers_Backend_internal_application_dto_health.HealthResponse": {
+            "type": "object",
+            "properties": {
+                "app": {
+                    "type": "string"
+                },
+                "database": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingListResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingResponse"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_application_dto_underlying.UnderlyingResponse": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "market_type": {
+                    "type": "string"
+                },
+                "name_fa": {
+                    "type": "string"
+                },
+                "symbol_fa": {
+                    "type": "string"
+                },
+                "tsetmc_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_QuantDevelopers_Backend_internal_presentation_controller.SingleMessageResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "message": {
+                    "type": "string"
+                },
+                "statusCode": {
+                    "type": "integer"
+                }
+            }
+        }
+    }
+}
