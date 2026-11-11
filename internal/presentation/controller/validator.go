@@ -40,7 +40,7 @@ func formatValidationErrors[T any](errs validator.ValidationErrors) exception.Va
 	tagTypes := []string{"json", "param", "query", "form"}
 
 	t := reflect.TypeOf(params)
-	if t.Kind() == reflect.Ptr {
+	if t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 

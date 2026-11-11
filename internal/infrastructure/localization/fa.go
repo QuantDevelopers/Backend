@@ -5,7 +5,7 @@ var Persian = map[string]interface{}{
 	"optionContract":  "قرارداد اختیار معامله",
 	"dailyHistory":    "تاریخچه روزانه",
 	"tickRaw":         "تیک خام",
-	"tickClean":       "تیک پالایش‌شده",
+	"tickClean":       "تیک پالایش\u200cشده",
 	"qualityLog":      "گزارش کیفیت داده",
 	"symbolFA":        "نماد فارسی",
 	"contractType":    "نوع قرارداد",
@@ -23,6 +23,6 @@ var Persian = map[string]interface{}{
 		"notFound":       "{0} یافت نشد.",
 		"forbiddenError": "شما دسترسی لازم به {0} را ندارید.",
 		"unauthorized":   "ابتدا باید وارد شوید.",
-		"rateLimit":      "تعداد درخواست‌ها از حد مجاز بیشتر شده است.",
+		"rateLimit":      "تعداد درخواست\u200cها از حد مجاز بیشتر شده است.",
 	},
 }

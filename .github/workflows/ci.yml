@@ -42,7 +42,7 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
-          version: v2
+          version: v2.15.0
 
   test:
     name: Unit & PostgreSQL Integration Tests
@@ -120,5 +120,6 @@ jobs:
           push: false
           build-args: |
             ALPINE_MIRROR=
+            GOPROXY=https://proxy.golang.org,direct
           cache-from: type=gha
           cache-to: type=gha,mode=max

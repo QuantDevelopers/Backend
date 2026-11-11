@@ -13,7 +13,7 @@ func (m Moneyness) String() string {
 	case MoneynessITM:
 		return "در سود (ITM)"
 	case MoneynessATM:
-		return "بی‌تفاوت (ATM)"
+		return "بی\u200cتفاوت (ATM)"
 	case MoneynessOTM:
 		return "در زیان (OTM)"
 	default:
