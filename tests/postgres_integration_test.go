@@ -95,4 +95,46 @@ func TestPostgresAutoMigrateSeedAndRepositories(t *testing.T) {
 	if len(opts) == 0 {
 		t.Fatal("expected at least 1 saved option contract")
 	}
+
+	dailyRepo := infrapostgres.NewDailyHistoryRepository()
+	yPrice := 70744.0
+	dailyRecords := []*entity.DailyHistory{
+		{
+			InstrumentType: "UNDERLYING",
+			InstrumentID:   ahram.ID,
+			TradeDate:      time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC),
+			OpenPrice:      69869,
+			HighPrice:      73070,
+			LowPrice:       69205,
+			ClosePrice:     71666,
+			YesterdayPrice: &yPrice,
+			Volume:         162591305,
+			Value:          11652324145553,
+			TradeCount:     20749,
+		},
+		{
+			InstrumentType: "UNDERLYING",
+			InstrumentID:   ahram.ID,
+			TradeDate:      time.Date(2026, 10, 28, 0, 0, 0, 0, time.UTC),
+			OpenPrice:      69900,
+			HighPrice:      73070,
+			LowPrice:       69205,
+			ClosePrice:     71700,
+			YesterdayPrice: &yPrice,
+			Volume:         162591305,
+			Value:          11652324145553,
+			TradeCount:     20749,
+		},
+	}
+	if _, err := dailyRepo.SaveBulk(pgDB, dailyRecords); err != nil {
+		t.Fatalf("save daily history bulk: %v", err)
+	}
+
+	dates, err := dailyRepo.GetTradingDates(pgDB, "UNDERLYING", ahram.ID, true)
+	if err != nil {
+		t.Fatalf("GetTradingDates: %v", err)
+	}
+	if len(dates) == 0 {
+		t.Fatal("expected at least 1 persisted trading date")
+	}
 }

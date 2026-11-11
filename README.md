@@ -110,13 +110,19 @@ make wire
 make swagger
 ```
 
-### ۵. اجرای خزنده Go (E1-3 کشف قراردادها و E2-2 دریافت تیک)
+### ۵. اجرای بنچمارک (E1-2) و خزنده Go (E1-3، E2-1 و E2-2)
 ```bash
+# بنچمارک تعیین نرخ امن و تاخیر TSETMC (E1-2):
+go run ./cmd/benchmark -mode=sweep -rates=1.0,2.0,3.0,5.0 -requests=8 -out-dir=docs/benchmarks
+
 # کشف قراردادهای فعال و دارایی‌های پایه با فیکسچر آفلاین (E1-3):
 go run ./cmd/crawler -mode=discover -offline
 
 # کشف زنده از TSETMC و ذخیره‌سازی در PostgreSQL:
 go run ./cmd/crawler -mode=discover -persist-db
+
+# خزش تاریخچه روزانه قیمت و حجم به جدول daily_history (E2-1):
+go run ./cmd/crawler -mode=daily-history -persist-db -days=0
 
 # نمونه دریافت تیک خام + Manifest SHA-256 + پاک‌سازی با فیکسچر آفلاین (E2-2):
 go run ./cmd/crawler -mode=tick-sample -offline -ins-code=42511156565416187 -date=20261028

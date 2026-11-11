@@ -104,7 +104,10 @@ func InitializeCrawlerApplication(container *bootstrap.Config) (*CrawlerApplicat
 	}
 	discoveryService := service.NewDiscoveryService(httpClient, underlyingRepository, optionContractRepository, postgresDatabase, loggerLogger)
 	tickIngestorService := service.NewTickIngestorService(httpClient, loggerLogger)
-	crawlerApplication := NewCrawlerApplication(loggerLogger, discoveryService, tickIngestorService)
+	benchmarkService := service.NewBenchmarkService(loggerLogger)
+	dailyHistoryRepository := postgres.NewDailyHistoryRepository()
+	dailyHistoryCrawlerService := service.NewDailyHistoryCrawlerService(httpClient, underlyingRepository, optionContractRepository, dailyHistoryRepository, postgresDatabase, loggerLogger)
+	crawlerApplication := NewCrawlerApplication(loggerLogger, discoveryService, tickIngestorService, benchmarkService, dailyHistoryCrawlerService)
 	return crawlerApplication, nil
 }
 
@@ -122,7 +125,10 @@ func InitializeOfflineCrawlerApplication(container *bootstrap.Config) (*CrawlerA
 	databaseDatabase := ProvideNilDatabase()
 	discoveryService := service.NewDiscoveryService(httpClient, underlyingRepository, optionContractRepository, databaseDatabase, loggerLogger)
 	tickIngestorService := service.NewTickIngestorService(httpClient, loggerLogger)
-	crawlerApplication := NewCrawlerApplication(loggerLogger, discoveryService, tickIngestorService)
+	benchmarkService := service.NewBenchmarkService(loggerLogger)
+	dailyHistoryRepository := ProvideNilDailyHistoryRepository()
+	dailyHistoryCrawlerService := service.NewDailyHistoryCrawlerService(httpClient, underlyingRepository, optionContractRepository, dailyHistoryRepository, databaseDatabase, loggerLogger)
+	crawlerApplication := NewCrawlerApplication(loggerLogger, discoveryService, tickIngestorService, benchmarkService, dailyHistoryCrawlerService)
 	return crawlerApplication, nil
 }
 
@@ -130,9 +136,9 @@ func InitializeOfflineCrawlerApplication(container *bootstrap.Config) (*CrawlerA
 
 var DatabaseProviderSet = wire.NewSet(database.NewPostgresDatabase, wire.Bind(new(database.Database), new(*database.PostgresDatabase)), wire.Struct(new(Database), "*"))
 
-var RepositoryProviderSet = wire.NewSet(postgres.NewUnderlyingRepository, postgres.NewOptionContractRepository, wire.Bind(new(postgres2.UnderlyingRepository), new(*postgres.UnderlyingRepository)), wire.Bind(new(postgres2.OptionContractRepository), new(*postgres.OptionContractRepository)))
+var RepositoryProviderSet = wire.NewSet(postgres.NewUnderlyingRepository, postgres.NewOptionContractRepository, postgres.NewDailyHistoryRepository, wire.Bind(new(postgres2.UnderlyingRepository), new(*postgres.UnderlyingRepository)), wire.Bind(new(postgres2.OptionContractRepository), new(*postgres.OptionContractRepository)), wire.Bind(new(postgres2.DailyHistoryRepository), new(*postgres.DailyHistoryRepository)))
 
-var ServiceProviderSet = wire.NewSet(service.NewHealthService, service.NewUnderlyingService, service.NewOptionService, service.NewDiscoveryService, service.NewTickIngestorService, wire.Bind(new(usecase.HealthService), new(*service.HealthService)), wire.Bind(new(usecase.UnderlyingService), new(*service.UnderlyingService)), wire.Bind(new(usecase.OptionService), new(*service.OptionService)), wire.Bind(new(usecase.DiscoveryService), new(*service.DiscoveryService)), wire.Bind(new(usecase.TickIngestorService), new(*service.TickIngestorService)))
+var ServiceProviderSet = wire.NewSet(service.NewHealthService, service.NewUnderlyingService, service.NewOptionService, service.NewDiscoveryService, service.NewTickIngestorService, service.NewBenchmarkService, service.NewDailyHistoryCrawlerService, wire.Bind(new(usecase.HealthService), new(*service.HealthService)), wire.Bind(new(usecase.UnderlyingService), new(*service.UnderlyingService)), wire.Bind(new(usecase.OptionService), new(*service.OptionService)), wire.Bind(new(usecase.DiscoveryService), new(*service.DiscoveryService)), wire.Bind(new(usecase.TickIngestorService), new(*service.TickIngestorService)), wire.Bind(new(usecase.BenchmarkService), new(*service.BenchmarkService)), wire.Bind(new(usecase.DailyHistoryCrawlerService), new(*service.DailyHistoryCrawlerService)))
 
 var AdapterProviderSet = wire.NewSet(localization.NewTranslationService, logger.NewLogger, metrics.NewPrometheusMetrics, tsetmc.NewHTTPClientFromConfig, wire.Bind(new(logger2.Logger), new(*logger.Logger)), wire.Bind(new(metrics2.MetricsClient), new(*metrics.PrometheusMetrics)), wire.Bind(new(tsetmc2.Client), new(*tsetmc.HTTPClient)))
 
@@ -188,6 +194,10 @@ func ProvideNilOptionContractRepository() postgres2.OptionContractRepository {
 	return nil
 }
 
+func ProvideNilDailyHistoryRepository() postgres2.DailyHistoryRepository {
+	return nil
+}
+
 var ProviderSet = wire.NewSet(
 	DatabaseProviderSet,
 	RepositoryProviderSet,
@@ -207,12 +217,13 @@ var ProviderSet = wire.NewSet(
 	ProvideCrawlerConfig,
 )
 
-var OfflineCrawlerProviderSet = wire.NewSet(logger.NewLogger, tsetmc.NewHTTPClientFromConfig, wire.Bind(new(logger2.Logger), new(*logger.Logger)), wire.Bind(new(tsetmc2.Client), new(*tsetmc.HTTPClient)), service.NewDiscoveryService, service.NewTickIngestorService, wire.Bind(new(usecase.DiscoveryService), new(*service.DiscoveryService)), wire.Bind(new(usecase.TickIngestorService), new(*service.TickIngestorService)), ProvideConstants,
+var OfflineCrawlerProviderSet = wire.NewSet(logger.NewLogger, tsetmc.NewHTTPClientFromConfig, wire.Bind(new(logger2.Logger), new(*logger.Logger)), wire.Bind(new(tsetmc2.Client), new(*tsetmc.HTTPClient)), service.NewDiscoveryService, service.NewTickIngestorService, service.NewBenchmarkService, service.NewDailyHistoryCrawlerService, wire.Bind(new(usecase.DiscoveryService), new(*service.DiscoveryService)), wire.Bind(new(usecase.TickIngestorService), new(*service.TickIngestorService)), wire.Bind(new(usecase.BenchmarkService), new(*service.BenchmarkService)), wire.Bind(new(usecase.DailyHistoryCrawlerService), new(*service.DailyHistoryCrawlerService)), ProvideConstants,
 	ProvideLoggerConfig,
 	ProvideCrawlerConfig,
 	ProvideNilDatabase,
 	ProvideNilUnderlyingRepository,
 	ProvideNilOptionContractRepository,
+	ProvideNilDailyHistoryRepository,
 )
 
 type Database struct {
@@ -292,16 +303,22 @@ type CrawlerApplication struct {
 	Logger              logger2.Logger
 	DiscoveryService    usecase.DiscoveryService
 	TickIngestorService usecase.TickIngestorService
+	BenchmarkService    usecase.BenchmarkService
+	DailyHistoryCrawler usecase.DailyHistoryCrawlerService
 }
 
 func NewCrawlerApplication(
 	log logger2.Logger,
 	discoveryService usecase.DiscoveryService,
 	tickIngestorService usecase.TickIngestorService,
+	benchmarkService usecase.BenchmarkService,
+	dailyHistoryCrawler usecase.DailyHistoryCrawlerService,
 ) *CrawlerApplication {
 	return &CrawlerApplication{
 		Logger:              log,
 		DiscoveryService:    discoveryService,
 		TickIngestorService: tickIngestorService,
+		BenchmarkService:    benchmarkService,
+		DailyHistoryCrawler: dailyHistoryCrawler,
 	}
 }
