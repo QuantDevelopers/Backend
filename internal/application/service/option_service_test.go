@@ -18,18 +18,28 @@ import (
 
 type OptionServiceTestSuite struct {
 	suite.Suite
-	constants        *bootstrap.Constants
-	optionRepository *repoMocks.OptionContractRepositoryMock
-	db               *dbMocks.DatabaseMock
-	optionService    *OptionService
+	constants            *bootstrap.Constants
+	optionRepository     *repoMocks.OptionContractRepositoryMock
+	underlyingRepository *repoMocks.UnderlyingRepositoryMock
+	dailyRepository      *repoMocks.DailyHistoryRepositoryMock
+	db                   *dbMocks.DatabaseMock
+	optionService        *OptionService
 }
 
 func (s *OptionServiceTestSuite) SetupTest() {
 	cfg := bootstrap.Run()
 	s.constants = cfg.Constants
 	s.optionRepository = repoMocks.NewOptionContractRepositoryMock()
+	s.underlyingRepository = repoMocks.NewUnderlyingRepositoryMock()
+	s.dailyRepository = repoMocks.NewDailyHistoryRepositoryMock()
 	s.db = dbMocks.NewDatabaseMock()
-	s.optionService = NewOptionService(s.constants, s.optionRepository, s.db)
+	s.optionService = NewOptionService(
+		s.constants,
+		s.optionRepository,
+		s.underlyingRepository,
+		s.dailyRepository,
+		s.db,
+	)
 }
 
 func (s *OptionServiceTestSuite) TestListOptions() {
@@ -107,6 +117,77 @@ func (s *OptionServiceTestSuite) TestGetOptionBySymbolAndSave() {
 		s.Equal(1000, res.ContractSize)
 		s.Equal("ACTIVE", res.Status)
 		s.optionRepository.AssertExpectations(s.T())
+	})
+}
+
+func (s *OptionServiceTestSuite) TestListOptionsPaginatedAndOptionChain() {
+	s.Run("ListOptionsPaginated resolves symbol_ua and applies pagination", func() {
+		ua := &entity.UnderlyingAsset{Model: database.Model{ID: 1}, SymbolFA: "اهرم"}
+		s.underlyingRepository.On("GetBySymbol", s.db, "اهرم").Return(ua, nil).Once()
+
+		expiry := time.Date(2026, 12, 20, 0, 0, 0, 0, time.UTC)
+		uaID := uint(1)
+		ct := "CALL"
+		s.optionRepository.On("ListPaginated", s.db, domainrepo.OptionQueryFilter{
+			UnderlyingAssetID: &uaID,
+			ContractType:      &ct,
+			Query:             "ضهرم",
+			Offset:            0,
+			Limit:             10,
+		}).Return([]*entity.OptionContract{
+			{
+				Model:             database.Model{ID: 11},
+				UnderlyingAssetID: 1,
+				SymbolFA:          "ضهرم101",
+				ContractType:      "CALL",
+				StrikePrice:       50000,
+				ContractSize:      1000,
+				ExpirationDate:    expiry,
+				IsActive:          true,
+				Status:            "ACTIVE",
+			},
+		}, 1, nil).Once()
+
+		res, err := s.optionService.ListOptionsPaginated(optiondto.ListOptionsQueryRequest{
+			UnderlyingSymbol: "اهرم",
+			ContractType:     "call",
+			Query:            "ضهرم",
+			Page:             1,
+			PageSize:         10,
+		})
+		s.Require().NoError(err)
+		s.Len(res.Items, 1)
+		s.Equal(int64(1), res.Pagination.TotalItems)
+	})
+
+	s.Run("GetOptionChain pairs call and put by strike with spot price moneyness", func() {
+		ua := &entity.UnderlyingAsset{Model: database.Model{ID: 1}, SymbolFA: "اهرم", NameFA: "صندوق اهرم", IsActive: true}
+		s.underlyingRepository.On("GetBySymbol", s.db, "اهرم").Return(ua, nil).Once()
+		s.dailyRepository.On("GetByInstrument", s.db, "UNDERLYING", uint(1), 1).Return([]*entity.DailyHistory{
+			{ClosePrice: 72000},
+		}, nil).Once()
+
+		expiry := time.Date(2027, 1, 13, 0, 0, 0, 0, time.UTC)
+		active := true
+		uaID := uint(1)
+		s.optionRepository.On("GetAll", s.db, domainrepo.OptionFilter{
+			UnderlyingAssetID: &uaID,
+			IsActive:          &active,
+		}).Return([]*entity.OptionContract{
+			{Model: database.Model{ID: 1}, UnderlyingAssetID: 1, SymbolFA: "ضهرم700", ContractType: "CALL", StrikePrice: 70000, ContractSize: 1000, ExpirationDate: expiry, IsActive: true},
+			{Model: database.Model{ID: 2}, UnderlyingAssetID: 1, SymbolFA: "طهرم700", ContractType: "PUT", StrikePrice: 70000, ContractSize: 1000, ExpirationDate: expiry, IsActive: true},
+		}, nil).Once()
+
+		chain, err := s.optionService.GetOptionChain(optiondto.GetOptionChainRequest{SymbolFA: "اهرم"})
+		s.Require().NoError(err)
+		s.Require().NotNil(chain.SpotPrice)
+		s.InDelta(72000.0, *chain.SpotPrice, 0.01)
+		s.Equal([]string{"2027-01-13"}, chain.Expirations)
+		s.Require().Len(chain.Rows, 1)
+		s.Equal("ITM", chain.Rows[0].CallMoneyness)
+		s.Equal("OTM", chain.Rows[0].PutMoneyness)
+		s.Require().NotNil(chain.Rows[0].Call)
+		s.Require().NotNil(chain.Rows[0].Put)
 	})
 }
 

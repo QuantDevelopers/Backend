@@ -10,6 +10,10 @@ var English = map[string]interface{}{
 	"symbolFA":        "Persian symbol",
 	"contractType":    "contract type",
 	"strikePrice":     "strike price",
+	"expirationDate":  "expiration date",
+	"instrumentType":  "instrument type",
+	"date":            "date",
+	"query":           "search query",
 	"page":            "page",
 	"pageSize":        "page size",
 	"errors": map[string]interface{}{

@@ -6,7 +6,10 @@ import (
 	"github.com/QuantDevelopers/Backend/bootstrap"
 	swaggerDocs "github.com/QuantDevelopers/Backend/docs/swagger"
 	domainmetrics "github.com/QuantDevelopers/Backend/internal/domain/metrics"
+	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/crawl"
 	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/health"
+	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/marketdata"
+	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/option"
 	"github.com/QuantDevelopers/Backend/internal/presentation/controller/v1/underlying"
 	"github.com/QuantDevelopers/Backend/internal/presentation/middleware"
 	httpv1 "github.com/QuantDevelopers/Backend/internal/presentation/routes/http/v1"
@@ -26,6 +29,9 @@ type AppRouter struct {
 	Prometheus           *middleware.PrometheusMiddleware
 	HealthController     *health.GeneralHealthController
 	UnderlyingController *underlying.GeneralUnderlyingController
+	OptionController     *option.GeneralOptionController
+	MarketDataController *marketdata.GeneralMarketDataController
+	CrawlController      *crawl.GeneralCrawlController
 }
 
 func Run(echoEngine *echo.Echo, app *AppRouter) {
@@ -53,5 +59,11 @@ func Run(echoEngine *echo.Echo, app *AppRouter) {
 	root.GET("/swagger/*", echoSwagger.WrapHandler)
 
 	v1 := root.Group("/api/v1")
-	httpv1.SetupGeneralRoutes(v1, app.UnderlyingController)
+	httpv1.SetupGeneralRoutes(
+		v1,
+		app.UnderlyingController,
+		app.OptionController,
+		app.MarketDataController,
+		app.CrawlController,
+	)
 }

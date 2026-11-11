@@ -23,6 +23,23 @@ func (repo *UnderlyingRepository) GetAll(db database.Database) ([]*entity.Underl
 	return assets, nil
 }
 
+func (repo *UnderlyingRepository) Search(db database.Database, query string, limit int) ([]*entity.UnderlyingAsset, error) {
+	tx := db.GetDB().Model(&entity.UnderlyingAsset{})
+	if query != "" {
+		like := "%" + query + "%"
+		tx = tx.Where("symbol_fa ILIKE ? OR name_fa ILIKE ? OR tsetmc_id ILIKE ? OR isin ILIKE ?", like, like, like, like)
+	}
+	tx = tx.Order("id ASC")
+	if limit > 0 {
+		tx = tx.Limit(limit)
+	}
+	var assets []*entity.UnderlyingAsset
+	if err := tx.Find(&assets).Error; err != nil {
+		return nil, err
+	}
+	return assets, nil
+}
+
 func (repo *UnderlyingRepository) GetBySymbol(db database.Database, symbolFA string) (*entity.UnderlyingAsset, error) {
 	var asset entity.UnderlyingAsset
 	err := db.GetDB().Where("symbol_fa = ?", symbolFA).First(&asset).Error

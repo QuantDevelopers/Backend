@@ -23,6 +23,15 @@ func (m *OptionContractRepositoryMock) GetAll(db database.Database, filter domai
 	return args.Get(0).([]*entity.OptionContract), args.Error(1)
 }
 
+func (m *OptionContractRepositoryMock) ListPaginated(db database.Database, filter domainrepo.OptionQueryFilter) ([]*entity.OptionContract, int64, error) {
+	args := m.Called(db, filter)
+	var rows []*entity.OptionContract
+	if args.Get(0) != nil {
+		rows = args.Get(0).([]*entity.OptionContract)
+	}
+	return rows, int64(args.Int(1)), args.Error(2)
+}
+
 func (m *OptionContractRepositoryMock) GetBySymbol(db database.Database, symbolFA string) (*entity.OptionContract, error) {
 	args := m.Called(db, symbolFA)
 	if args.Get(0) == nil {

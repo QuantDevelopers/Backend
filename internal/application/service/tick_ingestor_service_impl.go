@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -216,10 +217,15 @@ func (s *TickIngestorService) fetchRawTicks(
 		targetURL = fmt.Sprintf(TSETMCTradeURLHistory, insCode, strings.TrimSpace(explicitDate))
 	}
 
+	var lastFetchErr error
 	if s.client != nil {
 		body, status, err := s.client.Get(ctx, targetURL)
 		if err == nil && status == http.StatusOK {
 			return body, nil
+		}
+		lastFetchErr = err
+		if errors.Is(err, domaintsetmc.ErrCircuitBreakerOpen) {
+			return nil, err
 		}
 		if s.logger != nil {
 			s.logger.Warn("live tick fetch failed",
@@ -241,5 +247,8 @@ func (s *TickIngestorService) fetchRawTicks(
 		}
 	}
 
+	if lastFetchErr != nil {
+		return nil, fmt.Errorf("failed fetching ticks for insCode %s: %w", insCode, lastFetchErr)
+	}
 	return nil, fmt.Errorf("failed fetching ticks for insCode %s and no offline fixture found at %s", insCode, fixturePath)
 }

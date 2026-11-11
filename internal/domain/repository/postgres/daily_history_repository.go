@@ -20,6 +20,7 @@ type DailyHistoryFilter struct {
 type DailyHistoryRepository interface {
 	SaveBulk(db database.Database, records []*entity.DailyHistory) (int, error)
 	GetByInstrument(db database.Database, instrumentType string, instrumentID uint, limit int) ([]*entity.DailyHistory, error)
+	List(db database.Database, filter DailyHistoryFilter, limit int) ([]*entity.DailyHistory, error)
 	GetTradingDates(db database.Database, instrumentType string, instrumentID uint, onlyWithTrades bool) ([]time.Time, error)
 	Count(db database.Database, filter DailyHistoryFilter) (int64, error)
 }

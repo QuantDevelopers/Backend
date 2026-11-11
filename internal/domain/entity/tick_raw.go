@@ -23,7 +23,7 @@ type TickRaw struct {
 	InstrumentType string          `gorm:"column:instrument_type;type:varchar(20);not null;index;index:ix_raw_ticks_lookup,priority:1;check:check_raw_instrument_type,instrument_type IN ('UNDERLYING', 'OPTION')"`
 	InstrumentID   uint            `gorm:"column:instrument_id;not null;index;index:ix_raw_ticks_lookup,priority:2"`
 	TradeDate      time.Time       `gorm:"column:trade_date;type:date;not null;index;index:ix_raw_ticks_lookup,priority:3"`
-	TradeTime      string          `gorm:"column:trade_time;type:time;not null;index;index:ix_raw_ticks_lookup,priority:4"`
+	TradeTime      string          `gorm:"column:trade_time;type:time without time zone;not null;index;index:ix_raw_ticks_lookup,priority:4"`
 	SequenceNumber *int            `gorm:"column:sequence_number"`
 	Price          float64         `gorm:"column:price;type:numeric(15,2);not null"`
 	Volume         int64           `gorm:"column:volume;not null"`

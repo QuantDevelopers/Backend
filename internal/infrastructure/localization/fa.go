@@ -10,6 +10,10 @@ var Persian = map[string]interface{}{
 	"symbolFA":        "نماد فارسی",
 	"contractType":    "نوع قرارداد",
 	"strikePrice":     "قیمت اعمال",
+	"expirationDate":  "تاریخ سررسید",
+	"instrumentType":  "نوع ابزار",
+	"date":            "تاریخ",
+	"query":           "عبارت جستجو",
 	"page":            "صفحه",
 	"pageSize":        "اندازه صفحه",
 	"errors": map[string]interface{}{
