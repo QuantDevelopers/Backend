@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	stdhttp "net/http"
 	"os"
 	"os/signal"
@@ -18,9 +19,8 @@ import (
 )
 
 func main() {
-	echoEngine := echo.New()
-	echoEngine.HideBanner = true
-	echoEngine.HidePort = true
+	seedOnly := flag.Bool("seed-only", false, "run database AutoMigrate and seeders, then exit")
+	flag.Parse()
 
 	config := bootstrap.Run()
 
@@ -42,6 +42,15 @@ func main() {
 	}
 
 	app.Seeds.UnderlyingSeeder.SeedDefaultUnderlyings()
+	app.Logger.Info("database auto-migration and default underlying seeding completed")
+
+	if *seedOnly {
+		return
+	}
+
+	echoEngine := echo.New()
+	echoEngine.HideBanner = true
+	echoEngine.HidePort = true
 
 	routes.Run(echoEngine, app.ToAppRouter())
 
