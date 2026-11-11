@@ -117,13 +117,13 @@
 برای جلوگیری از مسدود شدن IP و ایجاد بار غیرمنطقی روی سرورهای بورس:
 
 ### ۱. هدرهای الزامی مرورگر (Browser Headers)
-سرورهای CDN بورس درخواست‌های با User-Agent پیش‌فرض پایتون را با کد ۴۰۳ مسدود می‌کنند. ارسال این هدرها اجباری است:
-```python
-HEADERS = {
+سرورهای CDN بورس درخواست‌های با User-Agent پیش‌فرض اسکریپت‌ها را با کد ۴۰۳ مسدود می‌کنند. ارسال این هدرها اجباری است:
+```go
+var browserHeaders = map[string]string{
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-    "Accept": "application/json,text/plain,*/*",
-    "Referer": "https://www.tsetmc.com/",
-    "Origin": "https://www.tsetmc.com",
+    "Accept":     "application/json,text/plain,*/*",
+    "Referer":    "https://www.tsetmc.com/",
+    "Origin":     "https://www.tsetmc.com",
 }
 ```
 
@@ -144,7 +144,7 @@ $$\text{Delay} = \text{Base} \times 2^{\text{attempt}} + \text{Uniform}(0, \text
 
 ## ۴. نتایج بنچ‌مارک تاخیر (Latency Benchmark)
 
-بر اساس اجرای اسکریپت اعتبارسنجی `scripts/cookbook_benchmark.py`:
+بر اساس اجرای اسکریپت اعتبارسنجی `cmd/benchmark/main.go` (معادل نسخه اولیه `scripts/cookbook_benchmark.py`):
 
 | شاخص | مقدار اندازه‌گیری‌شده | توضیحات |
 | :--- | :---: | :--- |

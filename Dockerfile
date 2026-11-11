@@ -1,38 +1,38 @@
 # ==============================================================================
-# QuantBackend Dockerfile
+# QuantBackend Dockerfile (Go + Echo)
 # ==============================================================================
-FROM python:3.11-slim AS runtime
-
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+FROM golang:1.27-alpine AS builder
 
 WORKDIR /app
 
-# Install system dependencies (curl for healthchecks, netcat for service wait)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    netcat-openbsd \
-    build-essential \
-    libpq-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Cache Go module downloads
+COPY go.mod go.sum ./
+RUN go mod download
 
-# Install python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Copy full source and build static binary
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/quant-server ./cmd/server
 
-# Copy application source code
-COPY src/ ./src/
-COPY pyproject.toml alembic.ini* ./
+# ==============================================================================
+# Minimal Runtime Image
+# ==============================================================================
+FROM alpine:3.21 AS runtime
 
-# Expose FastAPI port
+WORKDIR /app
+
+# ca-certificates for HTTPS/TSETMC, curl for container healthcheck, tzdata for Asia/Tehran
+RUN apk add --no-cache ca-certificates curl tzdata && \
+    adduser -D -u 10001 appuser && \
+    mkdir -p /app/data/raw && \
+    chown -R appuser:appuser /app
+
+COPY --from=builder /app/quant-server /app/quant-server
+
+USER appuser
+
 EXPOSE 8000
 
-# Health check probe
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Start uvicorn server
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["/app/quant-server"]
