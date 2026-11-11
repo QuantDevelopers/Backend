@@ -1,70 +1,37 @@
 // Package options provides financial domain calculations for Tehran Stock Exchange options.
 //
 // Card: E9-1 · Options Primer
-// Provides programmatic calculations for:
-//   - Payoff at expiration (Long/Short Call/Put)
-//   - Break-even prices
-//   - Intrinsic and Time Value breakdown
-//   - Moneyness classification (ITM, ATM, OTM)
-//   - Effective leverage ratio
 package options
 
 import (
 	"fmt"
 	"math"
-	"strings"
+
+	"github.com/QuantDevelopers/Backend/internal/domain/enum"
 )
 
 // DefaultATMThresholdPct defines the default +/-1% moneyness band around strike for ATM classification.
 const DefaultATMThresholdPct = 0.01
 
-// ContractType identifies whether an option is a Call or Put contract.
-type ContractType string
-
-const (
-	ContractTypeCall ContractType = "CALL"
-	ContractTypePut  ContractType = "PUT"
+type (
+	ContractType = enum.ContractType
+	PositionType = enum.PositionType
+	Moneyness    = enum.Moneyness
 )
 
-// ParseContractType normalizes and validates a contract type string.
-func ParseContractType(raw string) (ContractType, error) {
-	switch ContractType(strings.ToUpper(strings.TrimSpace(raw))) {
-	case ContractTypeCall:
-		return ContractTypeCall, nil
-	case ContractTypePut:
-		return ContractTypePut, nil
-	default:
-		return "", fmt.Errorf("invalid contract type %q: must be CALL or PUT", raw)
-	}
-}
-
-// PositionType identifies whether the trader holds a Long (buyer) or Short (writer) position.
-type PositionType string
-
 const (
-	PositionTypeLong  PositionType = "LONG"
-	PositionTypeShort PositionType = "SHORT"
+	ContractTypeCall  = enum.ContractTypeCall
+	ContractTypePut   = enum.ContractTypePut
+	PositionTypeLong  = enum.PositionTypeLong
+	PositionTypeShort = enum.PositionTypeShort
+	MoneynessITM      = enum.MoneynessITM
+	MoneynessATM      = enum.MoneynessATM
+	MoneynessOTM      = enum.MoneynessOTM
 )
 
-// ParsePositionType normalizes and validates a position type string.
-func ParsePositionType(raw string) (PositionType, error) {
-	switch PositionType(strings.ToUpper(strings.TrimSpace(raw))) {
-	case PositionTypeLong:
-		return PositionTypeLong, nil
-	case PositionTypeShort:
-		return PositionTypeShort, nil
-	default:
-		return "", fmt.Errorf("invalid position type %q: must be LONG or SHORT", raw)
-	}
-}
-
-// Moneyness classifies an option's intrinsic profitability relative to spot price.
-type Moneyness string
-
-const (
-	MoneynessITM Moneyness = "ITM"
-	MoneynessATM Moneyness = "ATM"
-	MoneynessOTM Moneyness = "OTM"
+var (
+	ParseContractType = enum.ParseContractType
+	ParsePositionType = enum.ParsePositionType
 )
 
 // OptionValueBreakdown splits option premium into intrinsic and time value alongside moneyness and break-even.
@@ -77,9 +44,6 @@ type OptionValueBreakdown struct {
 }
 
 // CalculateBreakeven computes the underlying spot price at expiration where net profit is zero.
-//
-// Call Breakeven = Strike + Premium
-// Put Breakeven  = Strike - Premium
 func CalculateBreakeven(contractType ContractType, strike, premium float64) (float64, error) {
 	cType, err := ParseContractType(string(contractType))
 	if err != nil {
@@ -92,9 +56,6 @@ func CalculateBreakeven(contractType ContractType, strike, premium float64) (flo
 }
 
 // CalculateIntrinsicValue computes the immediate exercise value of an option.
-//
-// Call Intrinsic Value = max(0, Spot - Strike)
-// Put Intrinsic Value  = max(0, Strike - Spot)
 func CalculateIntrinsicValue(contractType ContractType, strike, spotPrice float64) (float64, error) {
 	cType, err := ParseContractType(string(contractType))
 	if err != nil {

@@ -1,9 +1,12 @@
 # ==============================================================================
-# QuantBackend Dockerfile (Go + Echo)
+# QuantBackend Dockerfile (Go + Echo + Wire + GORM)
 # ==============================================================================
 FROM golang:1.27-alpine AS builder
 
 WORKDIR /app
+
+ARG GOPROXY=https://goproxy.io,https://proxy.golang.org,direct
+ENV GOPROXY=${GOPROXY}
 
 # Cache Go module downloads
 COPY go.mod go.sum ./
@@ -11,7 +14,7 @@ RUN go mod download
 
 # Copy full source and build static binary
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/quant-server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /app/quant-server ./cmd/app
 
 # ==============================================================================
 # Minimal Runtime Image

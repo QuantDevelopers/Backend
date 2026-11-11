@@ -1,13 +1,14 @@
 package tests
 
 import (
-	"io/fs"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/QuantDevelopers/Backend/internal/domain/entity"
-	"github.com/QuantDevelopers/Backend/migrations"
+	"github.com/QuantDevelopers/Backend/internal/domain/enum"
+	"github.com/QuantDevelopers/Backend/internal/infrastructure/database"
+	"github.com/QuantDevelopers/Backend/internal/infrastructure/seed"
 )
 
 func strPtr(s string) *string     { return &s }
@@ -16,7 +17,7 @@ func intPtr(i int) *int           { return &i }
 
 func TestDomainEntitiesCreationAndFormatting(t *testing.T) {
 	ua := entity.UnderlyingAsset{
-		ID:         1,
+		Model:      database.Model{ID: 1},
 		SymbolFA:   "اهرم",
 		NameFA:     "صندوق س. ا. کاریسما-شتاب",
 		TSETMCID:   strPtr("24000305886470390"),
@@ -29,16 +30,16 @@ func TestDomainEntitiesCreationAndFormatting(t *testing.T) {
 	}
 
 	opt := entity.OptionContract{
-		ID:                10,
+		Model:             database.Model{ID: 10},
 		UnderlyingAssetID: 1,
 		SymbolFA:          "ضهرم1204",
 		NameFA:            "اختیار خ اهرم-1200-1403/12/04",
-		ContractType:      "CALL",
+		ContractType:      string(enum.ContractTypeCall),
 		StrikePrice:       1200.0,
 		ContractSize:      1000,
 		ExpirationDate:    time.Date(2025, 2, 22, 0, 0, 0, 0, time.UTC),
 		IsActive:          true,
-		Status:            entity.ContractStatusActive,
+		Status:            string(enum.ContractStatusActive),
 	}
 	if opt.ContractType != "CALL" || opt.StrikePrice != 1200.0 || opt.Status != "ACTIVE" {
 		t.Fatalf("unexpected OptionContract: %+v", opt)
@@ -48,8 +49,8 @@ func TestDomainEntitiesCreationAndFormatting(t *testing.T) {
 	}
 
 	daily := entity.DailyHistory{
-		ID:              100,
-		InstrumentType:  entity.InstrumentTypeOption,
+		Model:           database.Model{ID: 100},
+		InstrumentType:  string(enum.InstrumentTypeOption),
 		InstrumentID:    10,
 		TradeDate:       time.Date(2024, 11, 1, 0, 0, 0, 0, time.UTC),
 		OpenPrice:       150.0,
@@ -65,22 +66,22 @@ func TestDomainEntitiesCreationAndFormatting(t *testing.T) {
 	}
 
 	tickRaw := entity.TickRaw{
-		ID:             1000,
-		InstrumentType: entity.InstrumentTypeOption,
+		Model:          database.Model{ID: 1000},
+		InstrumentType: string(enum.InstrumentTypeOption),
 		InstrumentID:   10,
 		TradeDate:      time.Date(2024, 11, 1, 0, 0, 0, 0, time.UTC),
-		TradeTime:      entity.ClockTime{Hour: 9, Minute: 30, Second: 15},
+		TradeTime:      entity.ClockTime{Hour: 9, Minute: 30, Second: 15}.String(),
 		Price:          175.0,
 		Volume:         500,
 		SequenceNumber: intPtr(1),
 	}
-	if tickRaw.TradeTime.String() != "09:30:15" || !strings.Contains(tickRaw.String(), "TickRaw") {
+	if tickRaw.TradeTime != "09:30:15" || !strings.Contains(tickRaw.String(), "TickRaw") {
 		t.Fatalf("unexpected TickRaw: %+v", tickRaw)
 	}
 
 	tickClean := entity.TickClean{
-		ID:             1000,
-		InstrumentType: entity.InstrumentTypeOption,
+		Model:          database.Model{ID: 1000},
+		InstrumentType: string(enum.InstrumentTypeOption),
 		InstrumentID:   10,
 		TradeDate:      time.Date(2024, 11, 1, 0, 0, 0, 0, time.UTC),
 		TradeTimestamp: time.Date(2024, 11, 1, 9, 30, 15, 0, time.UTC),
@@ -93,12 +94,12 @@ func TestDomainEntitiesCreationAndFormatting(t *testing.T) {
 	}
 
 	quality := entity.DataQualityLog{
-		ID:             50,
-		InstrumentType: entity.InstrumentTypeOption,
+		Model:          database.Model{ID: 50},
+		InstrumentType: string(enum.InstrumentTypeOption),
 		InstrumentID:   10,
 		TradeDate:      time.Date(2024, 11, 1, 0, 0, 0, 0, time.UTC),
 		CheckCategory:  "DUPLICATE_CHECK",
-		Status:         entity.QualityStatusPassed,
+		Status:         string(enum.QualityStatusPassed),
 		GapCount:       0,
 	}
 	if quality.Status != "PASSED" || !strings.Contains(quality.String(), "DataQualityLog") {
@@ -106,39 +107,18 @@ func TestDomainEntitiesCreationAndFormatting(t *testing.T) {
 	}
 }
 
-func TestEmbeddedInitialSQLMigrationContainsAllTables(t *testing.T) {
-	sqlBytes, err := fs.ReadFile(migrations.FS, "000001_initial_complete_schema.up.sql")
-	if err != nil {
-		t.Fatalf("failed to read embedded initial migration: %v", err)
+func TestDefault25UnderlyingsSeedData(t *testing.T) {
+	if len(seed.Default25Underlyings) != 25 {
+		t.Fatalf("len(Default25Underlyings) = %d, want 25", len(seed.Default25Underlyings))
 	}
-	sqlText := string(sqlBytes)
-
-	requiredTables := []string{
-		"underlying_assets",
-		"option_contracts",
-		"daily_history",
-		"ticks_raw",
-		"ticks_clean",
-		"data_quality_logs",
-	}
-	for _, tbl := range requiredTables {
-		if !strings.Contains(sqlText, "CREATE TABLE IF NOT EXISTS "+tbl) {
-			t.Fatalf("embedded migration missing table %q", tbl)
+	seen := make(map[string]bool, 25)
+	for _, item := range seed.Default25Underlyings {
+		if item.SymbolFA == "" || item.NameFA == "" {
+			t.Fatalf("empty field in default underlying: %+v", item)
 		}
-	}
-
-	requiredConstraints := []string{
-		"check_contract_type",
-		"check_daily_instrument_type",
-		"uq_daily_instrument_date",
-		"check_raw_instrument_type",
-		"check_clean_instrument_type",
-		"uq_clean_tick_seq",
-		"check_quality_status",
-	}
-	for _, c := range requiredConstraints {
-		if !strings.Contains(sqlText, c) {
-			t.Fatalf("embedded migration missing constraint %q", c)
+		if seen[item.SymbolFA] {
+			t.Fatalf("duplicate symbol_fa %q", item.SymbolFA)
 		}
+		seen[item.SymbolFA] = true
 	}
 }

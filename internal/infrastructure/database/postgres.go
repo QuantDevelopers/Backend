@@ -3,85 +3,112 @@ package database
 import (
 	"context"
 	"fmt"
-	"log/slog"
+	"sync"
 	"time"
 
-	"github.com/QuantDevelopers/Backend/internal/config"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/jackc/pgx/v5/tracelog"
+	"github.com/QuantDevelopers/Backend/bootstrap"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 )
 
-type slogTracer struct {
-	logger *slog.Logger
+type Database interface {
+	GetDB() *gorm.DB
+	WithTransaction(fn func(Database) error) error
+	Ping(ctx context.Context) error
 }
 
-func (t slogTracer) Log(_ context.Context, level tracelog.LogLevel, msg string, data map[string]any) {
-	t.logger.Debug("pgx", "level", level.String(), "msg", msg, "data", data)
+type PostgresDatabase struct {
+	DB *gorm.DB
 }
 
-// NewPool creates and configures a PostgreSQL connection pool.
-func NewPool(ctx context.Context, cfg config.Settings, logger *slog.Logger) (*pgxpool.Pool, error) {
-	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("parse database url: %w", err)
-	}
+var (
+	dbOnce     sync.Once
+	dbInstance *PostgresDatabase
+)
 
-	poolCfg.MaxConns = cfg.MaxPoolConns()
-	poolCfg.MinConns = 1
-	poolCfg.MaxConnLifetime = time.Hour
-	poolCfg.MaxConnIdleTime = 30 * time.Minute
-	poolCfg.HealthCheckPeriod = time.Minute
-
-	if cfg.DBEcho && logger != nil {
-		poolCfg.ConnConfig.Tracer = &tracelog.TraceLog{
-			Logger:   slogTracer{logger: logger},
-			LogLevel: tracelog.LogLevelDebug,
+func NewPostgresDatabase(dbConfig *bootstrap.Database) (*PostgresDatabase, error) {
+	var initErr error
+	dbOnce.Do(func() {
+		logMode := gormlogger.Silent
+		if dbConfig.Echo {
+			logMode = gormlogger.Info
 		}
-	}
 
-	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
-	if err != nil {
-		return nil, fmt.Errorf("create pgx pool: %w", err)
-	}
-
-	return pool, nil
-}
-
-// CheckConnection executes SELECT 1 to verify live database connectivity.
-func CheckConnection(ctx context.Context, pool *pgxpool.Pool) bool {
-	if pool == nil {
-		return false
-	}
-	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
-	var result int
-	err := pool.QueryRow(checkCtx, "SELECT 1").Scan(&result)
-	return err == nil && result == 1
-}
-
-// WaitForConnection retries Ping briefly during container startup so transient boot races recover cleanly.
-func WaitForConnection(ctx context.Context, pool *pgxpool.Pool, maxAttempts int, delay time.Duration) error {
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		err := pool.Ping(pingCtx)
-		cancel()
-		if err == nil {
-			return nil
+		gormCfg := &gorm.Config{
+			Logger: gormlogger.Default.LogMode(logMode),
 		}
-		lastErr = err
-		if attempt < maxAttempts {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(delay):
+
+		var db *gorm.DB
+		for attempt := 1; attempt <= 10; attempt++ {
+			db, initErr = gorm.Open(postgres.Open(dbConfig.DSN()), gormCfg)
+			if initErr == nil {
+				sqlDB, sqlErr := db.DB()
+				if sqlErr == nil {
+					if pingErr := sqlDB.Ping(); pingErr == nil {
+						maxOpen := dbConfig.PoolSize + dbConfig.MaxOverflow
+						if maxOpen <= 0 {
+							maxOpen = 10
+						}
+						maxIdle := dbConfig.PoolSize
+						if maxIdle <= 0 {
+							maxIdle = 5
+						}
+						sqlDB.SetMaxOpenConns(maxOpen)
+						sqlDB.SetMaxIdleConns(maxIdle)
+						sqlDB.SetConnMaxLifetime(time.Hour)
+						initErr = nil
+						break
+					} else {
+						initErr = pingErr
+					}
+				} else {
+					initErr = sqlErr
+				}
+			}
+			if attempt < 10 {
+				time.Sleep(2 * time.Second)
 			}
 		}
+		if initErr != nil {
+			initErr = fmt.Errorf("failed to connect database: %w", initErr)
+			return
+		}
+
+		dbInstance = &PostgresDatabase{DB: db}
+	})
+
+	if initErr != nil {
+		return nil, initErr
 	}
-	return fmt.Errorf("database unreachable after %d attempts: %w", maxAttempts, lastErr)
+	return dbInstance, nil
 }
 
-// Ensure pgx.Tx satisfies common query usage at compile time if needed elsewhere.
-var _ pgx.Tx = (pgx.Tx)(nil)
+func (pg *PostgresDatabase) GetDB() *gorm.DB {
+	if pg != nil && pg.DB != nil {
+		return pg.DB
+	}
+	if dbInstance != nil {
+		return dbInstance.DB
+	}
+	return nil
+}
+
+func (pg *PostgresDatabase) WithTransaction(fn func(Database) error) error {
+	return pg.GetDB().Transaction(func(tx *gorm.DB) error {
+		txWrapper := &PostgresDatabase{DB: tx}
+		return fn(txWrapper)
+	})
+}
+
+func (pg *PostgresDatabase) Ping(ctx context.Context) error {
+	db := pg.GetDB()
+	if db == nil {
+		return fmt.Errorf("database instance is not initialized")
+	}
+	pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	var one int
+	return db.WithContext(pingCtx).Raw("SELECT 1").Scan(&one).Error
+}
