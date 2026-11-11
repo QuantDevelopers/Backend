@@ -7,7 +7,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"math"
@@ -15,7 +17,13 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/QuantDevelopers/Backend/bootstrap"
+	crawlerdto "github.com/QuantDevelopers/Backend/internal/application/dto/crawler"
+	"github.com/QuantDevelopers/Backend/wire"
 )
 
 const (
@@ -198,14 +206,71 @@ func runLatencyBenchmark(client *http.Client, nRequests int) *latencySummary {
 	return summary
 }
 
+func parseRatesCSV(raw string) []float64 {
+	parts := strings.Split(raw, ",")
+	out := make([]float64, 0, len(parts))
+	for _, p := range parts {
+		if trimmed := strings.TrimSpace(p); trimmed != "" {
+			if val, err := strconv.ParseFloat(trimmed, 64); err == nil && val > 0 {
+				out = append(out, val)
+			}
+		}
+	}
+	return out
+}
+
 func main() {
-	if err := os.MkdirAll(samplesDir, 0o755); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to create samples directory: %v\n", err)
+	mode := flag.String("mode", "sweep", "benchmark mode: sweep (E1-2 safe rate) | cookbook (E1-1 samples) | all")
+	ratesCSV := flag.String("rates", "1.0,2.0,3.0,5.0,8.0", "comma-separated candidate RPS tiers for E1-2 rate sweep")
+	requestsPerRate := flag.Int("requests", 8, "number of probe requests per RPS tier")
+	outDir := flag.String("out-dir", "docs/benchmarks", "output directory for E1-2 JSON/Markdown reports (empty to disable files)")
+	targetURL := flag.String("target-url", "", "optional override endpoint URL for benchmark probe")
+	fetchSamples := flag.Bool("fetch-samples", false, "also refresh cookbook samples in data/raw/samples")
+	flag.Parse()
+
+	if *mode == "cookbook" || *mode == "all" || *fetchSamples {
+		if err := os.MkdirAll(samplesDir, 0o755); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to create samples directory: %v\n", err)
+			os.Exit(1)
+		}
+		client := newHTTPClient()
+		fetchAndSaveSamples(client)
+		if *mode == "cookbook" {
+			runLatencyBenchmark(client, 15)
+			fmt.Println("\nCookbook benchmark completed successfully.")
+			return
+		}
+	}
+
+	if *mode != "sweep" && *mode != "all" {
+		fmt.Fprintf(os.Stderr, "unsupported mode %q: expected 'sweep', 'cookbook', or 'all'\n", *mode)
+		os.Exit(2)
+	}
+
+	config := bootstrap.Run()
+	app, err := wire.InitializeOfflineCrawlerApplication(config)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize benchmark application: %v\n", err)
+		os.Exit(1)
+	}
+	defer app.Logger.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+
+	report, err := app.BenchmarkService.RunRateSweep(ctx, crawlerdto.BenchmarkOptions{
+		TargetURL:       *targetURL,
+		Rates:           parseRatesCSV(*ratesCSV),
+		RequestsPerRate: *requestsPerRate,
+		OutputDir:       *outDir,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "E1-2 benchmark failed: %v\n", err)
 		os.Exit(1)
 	}
 
-	client := newHTTPClient()
-	fetchAndSaveSamples(client)
-	runLatencyBenchmark(client, 15)
-	fmt.Println("\nBenchmark completed successfully.")
+	fmt.Println(app.BenchmarkService.FormatMarkdown(report))
+	if report.MarkdownPath != "" {
+		fmt.Printf("Saved reports:\n  - %s\n  - %s\n", report.JSONPath, report.MarkdownPath)
+	}
 }

@@ -35,8 +35,10 @@ var DatabaseProviderSet = wire.NewSet(
 var RepositoryProviderSet = wire.NewSet(
 	infrapostgres.NewUnderlyingRepository,
 	infrapostgres.NewOptionContractRepository,
+	infrapostgres.NewDailyHistoryRepository,
 	wire.Bind(new(domainpostgres.UnderlyingRepository), new(*infrapostgres.UnderlyingRepository)),
 	wire.Bind(new(domainpostgres.OptionContractRepository), new(*infrapostgres.OptionContractRepository)),
+	wire.Bind(new(domainpostgres.DailyHistoryRepository), new(*infrapostgres.DailyHistoryRepository)),
 )
 
 var ServiceProviderSet = wire.NewSet(
@@ -45,11 +47,15 @@ var ServiceProviderSet = wire.NewSet(
 	service.NewOptionService,
 	service.NewDiscoveryService,
 	service.NewTickIngestorService,
+	service.NewBenchmarkService,
+	service.NewDailyHistoryCrawlerService,
 	wire.Bind(new(usecase.HealthService), new(*service.HealthService)),
 	wire.Bind(new(usecase.UnderlyingService), new(*service.UnderlyingService)),
 	wire.Bind(new(usecase.OptionService), new(*service.OptionService)),
 	wire.Bind(new(usecase.DiscoveryService), new(*service.DiscoveryService)),
 	wire.Bind(new(usecase.TickIngestorService), new(*service.TickIngestorService)),
+	wire.Bind(new(usecase.BenchmarkService), new(*service.BenchmarkService)),
+	wire.Bind(new(usecase.DailyHistoryCrawlerService), new(*service.DailyHistoryCrawlerService)),
 )
 
 var AdapterProviderSet = wire.NewSet(
@@ -131,6 +137,10 @@ func ProvideNilOptionContractRepository() domainpostgres.OptionContractRepositor
 	return nil
 }
 
+func ProvideNilDailyHistoryRepository() domainpostgres.DailyHistoryRepository {
+	return nil
+}
+
 var ProviderSet = wire.NewSet(
 	DatabaseProviderSet,
 	RepositoryProviderSet,
@@ -157,14 +167,19 @@ var OfflineCrawlerProviderSet = wire.NewSet(
 	wire.Bind(new(domaintsetmc.Client), new(*infratsetmc.HTTPClient)),
 	service.NewDiscoveryService,
 	service.NewTickIngestorService,
+	service.NewBenchmarkService,
+	service.NewDailyHistoryCrawlerService,
 	wire.Bind(new(usecase.DiscoveryService), new(*service.DiscoveryService)),
 	wire.Bind(new(usecase.TickIngestorService), new(*service.TickIngestorService)),
+	wire.Bind(new(usecase.BenchmarkService), new(*service.BenchmarkService)),
+	wire.Bind(new(usecase.DailyHistoryCrawlerService), new(*service.DailyHistoryCrawlerService)),
 	ProvideConstants,
 	ProvideLoggerConfig,
 	ProvideCrawlerConfig,
 	ProvideNilDatabase,
 	ProvideNilUnderlyingRepository,
 	ProvideNilOptionContractRepository,
+	ProvideNilDailyHistoryRepository,
 )
 
 type Database struct {
@@ -253,17 +268,23 @@ type CrawlerApplication struct {
 	Logger              domainlogger.Logger
 	DiscoveryService    usecase.DiscoveryService
 	TickIngestorService usecase.TickIngestorService
+	BenchmarkService    usecase.BenchmarkService
+	DailyHistoryCrawler usecase.DailyHistoryCrawlerService
 }
 
 func NewCrawlerApplication(
 	log domainlogger.Logger,
 	discoveryService usecase.DiscoveryService,
 	tickIngestorService usecase.TickIngestorService,
+	benchmarkService usecase.BenchmarkService,
+	dailyHistoryCrawler usecase.DailyHistoryCrawlerService,
 ) *CrawlerApplication {
 	return &CrawlerApplication{
 		Logger:              log,
 		DiscoveryService:    discoveryService,
 		TickIngestorService: tickIngestorService,
+		BenchmarkService:    benchmarkService,
+		DailyHistoryCrawler: dailyHistoryCrawler,
 	}
 }
 
