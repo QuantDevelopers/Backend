@@ -14,6 +14,7 @@ import (
 	_ "github.com/QuantDevelopers/Backend/docs/swagger"
 	"github.com/QuantDevelopers/Backend/internal/domain/entity"
 	domainlogger "github.com/QuantDevelopers/Backend/internal/domain/logger"
+	repository "github.com/QuantDevelopers/Backend/internal/infrastructure/repository/postgres"
 	"github.com/QuantDevelopers/Backend/internal/presentation/routes"
 	"github.com/QuantDevelopers/Backend/wire"
 	"github.com/labstack/echo/v4"
@@ -48,6 +49,9 @@ func main() {
 		app.Logger.Fatal("failed to auto-migrate database schema", domainlogger.Error("error", err))
 	}
 
+	if err := repository.MigrateInstrumentIdentity(app.Database.DB.GetDB()); err != nil {
+		app.Logger.Fatal("instrument identity migration failed", domainlogger.Error("error", err))
+	}
 	app.Seeds.UnderlyingSeeder.SeedDefaultUnderlyings()
 	app.Logger.Info("database auto-migration and default underlying seeding completed")
 

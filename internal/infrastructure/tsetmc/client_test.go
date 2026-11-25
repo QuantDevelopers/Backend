@@ -2,6 +2,7 @@ package tsetmc_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -114,4 +115,20 @@ func (s *HTTPClientTestSuite) TestCircuitBreakerAnd4xxNoRetry() {
 
 func TestHTTPClientSuite(t *testing.T) {
 	suite.Run(t, new(HTTPClientTestSuite))
+}
+
+type transportFunc func(*http.Request) (*http.Response, error)
+
+func (f transportFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestCallerCancellationDoesNotTripCircuit(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	client := infratsetmc.NewHTTPClient(infratsetmc.ClientOptions{RateLimitRPS: 1000, HTTPClient: &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) { cancel(); return nil, context.Canceled })}}, nil)
+	_, _, err := client.Get(ctx, "https://example.invalid")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancellation, got %v", err)
+	}
+	if client.ConsecutiveErrors() != 0 {
+		t.Fatal("caller cancellation counted as upstream failure")
+	}
 }

@@ -124,6 +124,11 @@ func (s *OptionService) ListOptionsPaginated(req optiondto.ListOptionsQueryReque
 	if pageSize > 200 {
 		pageSize = 200
 	}
+	if page-1 > int(^uint(0)>>1)/pageSize {
+		var vErr exception.ValidationErrors
+		vErr.Add("page", s.constants.Tag.Invalid)
+		return optiondto.OptionListPaginatedResponse{}, vErr
+	}
 	offset := (page - 1) * pageSize
 
 	contracts, total, err := s.optionRepository.ListPaginated(s.db, postgres.OptionQueryFilter{

@@ -42,7 +42,7 @@ func (repo *UnderlyingRepository) Search(db database.Database, query string, lim
 
 func (repo *UnderlyingRepository) GetBySymbol(db database.Database, symbolFA string) (*entity.UnderlyingAsset, error) {
 	var asset entity.UnderlyingAsset
-	err := db.GetDB().Where("symbol_fa = ?", symbolFA).First(&asset).Error
+	err := db.GetDB().Where("symbol_fa = ?", symbolFA).Order("is_active DESC, updated_at DESC, id DESC").First(&asset).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
@@ -69,9 +69,25 @@ func (repo *UnderlyingRepository) Create(db database.Database, asset *entity.Und
 }
 
 func (repo *UnderlyingRepository) Upsert(db database.Database, asset *entity.UnderlyingAsset) error {
+	if asset.ID != 0 {
+		return db.GetDB().Model(&entity.UnderlyingAsset{}).Where("id = ?", asset.ID).Select("symbol_fa", "name_fa", "tsetmc_id", "isin", "market_type", "is_active", "updated_at").Updates(asset).Error
+	}
+	key := "tsetmc_id"
+	if asset.TSETMCID == nil {
+		existing, err := repo.GetBySymbol(db, asset.SymbolFA)
+		if err != nil {
+			return err
+		}
+		if existing != nil {
+			asset.ID = existing.ID
+			return nil
+		}
+		key = "id"
+	}
 	return db.GetDB().Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "symbol_fa"}},
+		Columns: []clause.Column{{Name: key}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
+			"symbol_fa":   gorm.Expr("EXCLUDED.symbol_fa"),
 			"name_fa":     gorm.Expr("EXCLUDED.name_fa"),
 			"tsetmc_id":   gorm.Expr("COALESCE(EXCLUDED.tsetmc_id, underlying_assets.tsetmc_id)"),
 			"isin":        gorm.Expr("COALESCE(EXCLUDED.isin, underlying_assets.isin)"),

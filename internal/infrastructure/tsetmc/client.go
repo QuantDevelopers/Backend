@@ -139,6 +139,9 @@ func (c *HTTPClient) Get(ctx context.Context, targetURL string) ([]byte, int, er
 	var lastErr error
 
 	for attempt := 1; attempt <= c.maxRetries; attempt++ {
+		if c.ConsecutiveErrors() >= c.maxConsecutiveErrors {
+			return nil, 0, domaintsetmc.ErrCircuitBreakerOpen
+		}
 		if err := c.limiter.Wait(ctx); err != nil {
 			return nil, 0, err
 		}
@@ -149,6 +152,9 @@ func (c *HTTPClient) Get(ctx context.Context, targetURL string) ([]byte, int, er
 			return body, status, nil
 		}
 
+		if ctx.Err() != nil {
+			return nil, status, ctx.Err()
+		}
 		lastStatus = status
 		if err != nil {
 			lastErr = err
@@ -217,7 +223,11 @@ func (c *HTTPClient) doSingleAttempt(ctx context.Context, targetURL string) ([]b
 
 func (c *HTTPClient) computeBackoff(attempt int) time.Duration {
 	exp := math.Pow(c.backoffFactor, float64(attempt-1))
-	delay := time.Duration(float64(c.backoffBase) * exp)
+	delayFloat := float64(c.backoffBase) * exp
+	if math.IsInf(delayFloat, 0) || delayFloat > float64(30*time.Second) {
+		delayFloat = float64(30 * time.Second)
+	}
+	delay := time.Duration(delayFloat)
 	if c.maxJitter > 0 {
 		delay += time.Duration(rand.Int64N(int64(c.maxJitter)))
 	}

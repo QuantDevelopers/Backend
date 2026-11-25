@@ -37,6 +37,9 @@ type ProductionCrawlOptions struct {
 
 // ProductionCrawlReport summarizes an E2-3/E2-4 production crawl batch run.
 type ProductionCrawlReport struct {
+	State           string    `json:"state"`
+	Pending         int       `json:"pending"`
+	ReplayedCache   int       `json:"replayed_cache"`
 	JobID           string    `json:"job_id"`
 	StartedAt       time.Time `json:"started_at"`
 	FinishedAt      time.Time `json:"finished_at"`

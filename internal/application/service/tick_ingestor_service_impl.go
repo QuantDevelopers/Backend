@@ -68,6 +68,11 @@ func (s *TickIngestorService) ParseTickPayload(
 	dateStr string,
 	contractSize int,
 ) ([]crawlerdto.CleanTickRecord, error) {
+	if err := requireArray(raw, "tradeHistory"); err != nil {
+		if err = requireArray(raw, "trade"); err != nil {
+			return nil, err
+		}
+	}
 	var payload crawlerdto.TradePayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, fmt.Errorf("decode trade tick JSON: %w", err)
@@ -84,6 +89,9 @@ func (s *TickIngestorService) ParseTickPayload(
 
 	clean := make([]crawlerdto.CleanTickRecord, 0, len(items))
 	for _, item := range items {
+		if item.HEven < 0 || item.HEven > 235959 || (item.HEven/100)%100 > 59 || item.HEven%100 > 59 || item.NTran <= 0 {
+			return nil, fmt.Errorf("invalid trade time or sequence %d/%d", item.HEven, item.NTran)
+		}
 		notional := item.PTran * float64(item.QTitTran) * float64(contractSize)
 		clean = append(clean, crawlerdto.CleanTickRecord{
 			InsCode:       insCode,
@@ -116,7 +124,16 @@ func (s *TickIngestorService) IngestSample(
 	}
 	dateStr := strings.TrimSpace(opts.DateStr)
 	if dateStr == "" {
-		dateStr = time.Now().UTC().Format("20060102")
+		dateStr = marketToday()
+	}
+	if err := validateInsCode(insCode); err != nil {
+		return nil, err
+	}
+	if _, err := parseTSETMCDate(dateStr); err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	contractSize := opts.ContractSize
 	if contractSize <= 0 {
@@ -131,7 +148,10 @@ func (s *TickIngestorService) IngestSample(
 		dataDir = defaultDataBaseDir
 	}
 
-	rawBytes, err := s.fetchRawTicks(ctx, insCode, opts.DateStr, opts.UseOfflineFixture, fixturePath, opts.DisableFallback)
+	if opts.CachePath != "" {
+		fixturePath = opts.CachePath
+	}
+	rawBytes, err := s.fetchRawTicks(ctx, insCode, dateStr, opts.UseOfflineFixture || opts.CachePath != "", fixturePath, opts.DisableFallback)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +171,7 @@ func (s *TickIngestorService) IngestSample(
 	}
 
 	rawPath := filepath.Join(rawInsDir, dateStr+".json")
-	if err := os.WriteFile(rawPath, rawBytes, 0o644); err != nil {
+	if err := writeAtomic(rawPath, rawBytes); err != nil {
 		return nil, fmt.Errorf("write raw tick payload %s: %w", rawPath, err)
 	}
 
@@ -166,6 +186,7 @@ func (s *TickIngestorService) IngestSample(
 	}
 
 	manifest := crawlerdto.TickManifest{
+		Version: 2, Offline: opts.UseOfflineFixture,
 		InsCode:      insCode,
 		Date:         dateStr,
 		Status:       status,
@@ -178,12 +199,13 @@ func (s *TickIngestorService) IngestSample(
 	}
 
 	manifestPath := filepath.Join(manifestDir, fmt.Sprintf("%s_%s_manifest.json", insCode, dateStr))
-	if err := writeJSONPretty(manifestPath, manifest); err != nil {
-		return nil, err
-	}
 
 	cleanPath := filepath.Join(cleanDir, fmt.Sprintf("%s_%s.json", insCode, dateStr))
 	if err := writeJSONPretty(cleanPath, records); err != nil {
+		return nil, err
+	}
+
+	if err := writeJSONPretty(manifestPath, manifest); err != nil {
 		return nil, err
 	}
 
@@ -236,19 +258,8 @@ func (s *TickIngestorService) fetchRawTicks(
 		}
 	}
 
-	if !disableFallback {
-		if raw, err := os.ReadFile(fixturePath); err == nil {
-			if s.logger != nil {
-				s.logger.Info("falling back to cached tick fixture",
-					domainlogger.String("fixture_path", fixturePath),
-				)
-			}
-			return raw, nil
-		}
-	}
-
 	if lastFetchErr != nil {
 		return nil, fmt.Errorf("failed fetching ticks for insCode %s: %w", insCode, lastFetchErr)
 	}
-	return nil, fmt.Errorf("failed fetching ticks for insCode %s and no offline fixture found at %s", insCode, fixturePath)
+	return nil, fmt.Errorf("live tick fetch failed for insCode %s; fixture %s requires explicit offline mode", insCode, fixturePath)
 }

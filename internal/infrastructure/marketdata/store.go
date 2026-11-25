@@ -24,7 +24,7 @@ func (s Store) Partition(ctx context.Context, w domain.Window) error {
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer rollback(tx)
 	if _, err = tx.Exec(ctx, "SELECT pg_advisory_xact_lock(32703, 1)"); err != nil {
 		return err
 	}
@@ -74,8 +74,15 @@ func (s Store) Partition(ctx context.Context, w domain.Window) error {
 			if _, err = tx.Exec(ctx, `INSERT INTO `+table+` SELECT * FROM `+table+`_unpartitioned`); err != nil {
 				return err
 			}
-			// LIKE shares the original sequence. Keep its ownership with the backup,
-			// which is retained intentionally; never drop that backup without migrating it.
+			var sequence *string
+			if err = tx.QueryRow(ctx, `SELECT pg_get_serial_sequence($1,'id')`, table+"_unpartitioned").Scan(&sequence); err != nil {
+				return err
+			}
+			if sequence != nil {
+				if _, err = tx.Exec(ctx, `ALTER SEQUENCE `+*sequence+` OWNED BY `+table+`.id`); err != nil {
+					return err
+				}
+			}
 		}
 		if _, err = tx.Exec(ctx, `CREATE INDEX IF NOT EXISTS `+table+`_partition_lookup ON `+table+` (instrument_type,instrument_id,trade_date)`); err != nil {
 			return err
@@ -129,7 +136,7 @@ func (s Store) Process(ctx context.Context, w domain.Window, maxAge time.Duratio
 	if err != nil {
 		return result, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer rollback(tx)
 	// Serialize rebuilds, including schema initialization and overlapping ranges.
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(32703,2)`); err != nil {
 		return result, err
@@ -202,3 +209,10 @@ WHERE o.instrument_type='OPTION' AND o.trade_date >= $1 AND o.trade_date < $2
 AND NOT o.is_canceled AND NOT o.is_outlier AND o.deleted_at IS NULL`
 
 var _ domain.Processor = Store{}
+
+// Rollback must outlive caller cancellation before returning a connection to its pool.
+func rollback(tx pgx.Tx) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = tx.Rollback(ctx)
+}

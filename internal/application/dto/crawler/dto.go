@@ -45,6 +45,8 @@ type MarketWatchItem struct {
 
 // DiscoveredUnderlying matches E1-3 underlyings.json registry schema.
 type DiscoveredUnderlying struct {
+	ISIN               string  `json:"isin,omitempty"`
+	InstrumentID       string  `json:"instrument_id,omitempty"`
 	InsCode            string  `json:"insCode"`
 	Symbol             string  `json:"symbol"`
 	Name               string  `json:"name"`
@@ -61,24 +63,27 @@ type DiscoveredUnderlying struct {
 
 // DiscoveredContract matches E1-3 active_contracts.json registry schema.
 type DiscoveredContract struct {
-	InsCode          string  `json:"insCode"`
-	Symbol           string  `json:"symbol"`
-	Name             string  `json:"name"`
-	Side             string  `json:"side"`
-	UaInsCode        string  `json:"uaInsCode"`
-	UnderlyingSymbol string  `json:"underlying_symbol"`
-	StrikePrice      float64 `json:"strike_price"`
-	ContractSize     int     `json:"contract_size"`
-	BeginDate        string  `json:"begin_date"`
-	ExpiryDate       string  `json:"expiry_date"`
-	RemainedDays     int     `json:"remained_days"`
-	LastPrice        float64 `json:"last_price"`
-	ClosePrice       float64 `json:"close_price"`
-	OpenPositions    int     `json:"open_positions"`
-	TradeCount       int     `json:"trade_count"`
-	TradeVolume      int64   `json:"trade_volume"`
-	TradeValue       float64 `json:"trade_value"`
-	DiscoveredBy     string  `json:"discovered_by"`
+	ISIN                  string  `json:"isin,omitempty"`
+	InstrumentID          string  `json:"instrument_id,omitempty"`
+	ContractSizeEstimated bool    `json:"contract_size_estimated,omitempty"`
+	InsCode               string  `json:"insCode"`
+	Symbol                string  `json:"symbol"`
+	Name                  string  `json:"name"`
+	Side                  string  `json:"side"`
+	UaInsCode             string  `json:"uaInsCode"`
+	UnderlyingSymbol      string  `json:"underlying_symbol"`
+	StrikePrice           float64 `json:"strike_price"`
+	ContractSize          int     `json:"contract_size"`
+	BeginDate             string  `json:"begin_date"`
+	ExpiryDate            string  `json:"expiry_date"`
+	RemainedDays          int     `json:"remained_days"`
+	LastPrice             float64 `json:"last_price"`
+	ClosePrice            float64 `json:"close_price"`
+	OpenPositions         int     `json:"open_positions"`
+	TradeCount            int     `json:"trade_count"`
+	TradeVolume           int64   `json:"trade_volume"`
+	TradeValue            float64 `json:"trade_value"`
+	DiscoveredBy          string  `json:"discovered_by"`
 }
 
 // DiscoveryOptions controls E1-3 contract discovery execution.
@@ -101,45 +106,61 @@ type DiscoveryResult struct {
 
 // RegistryInstrument represents an entry in the E1-5 full instrument registry.
 type RegistryInstrument struct {
-	InsCode          string  `json:"insCode"`
-	Symbol           string  `json:"symbol"`
-	Name             string  `json:"name"`
-	AssetClass       string  `json:"asset_class"` // "STOCK", "ETF", "OPTION_CALL", "OPTION_PUT"
-	Market           string  `json:"market"`      // "Bourse", "Farabourse"
-	UnderlyingSymbol string  `json:"underlying_symbol,omitempty"`
-	UaInsCode        string  `json:"ua_ins_code,omitempty"`
-	StrikePrice      float64 `json:"strike_price,omitempty"`
-	ContractSize     int     `json:"contract_size,omitempty"`
-	BeginDate        string  `json:"begin_date,omitempty"`
-	ExpiryDate       string  `json:"expiry_date,omitempty"`
-	RemainedDays     int     `json:"remained_days,omitempty"`
-	Status           string  `json:"status"` // "ACTIVE", "EXPIRED", "DELISTED"
-	IsActive         bool    `json:"is_active"`
-	LastPrice        float64 `json:"last_price,omitempty"`
-	ClosePrice       float64 `json:"close_price,omitempty"`
-	OpenPositions    int     `json:"open_positions,omitempty"`
-	TradeCount       int     `json:"trade_count,omitempty"`
-	TradeVolume      int64   `json:"trade_volume,omitempty"`
-	TradeValue       float64 `json:"trade_value,omitempty"`
-	DiscoveredBy     string  `json:"discovered_by"`
-	DiscoveredAt     string  `json:"discovered_at"`
+	ISIN                  string  `json:"isin,omitempty"`
+	InstrumentID          string  `json:"instrument_id,omitempty"`
+	ContractSizeEstimated bool    `json:"contract_size_estimated,omitempty"`
+	InsCode               string  `json:"insCode"`
+	Symbol                string  `json:"symbol"`
+	Name                  string  `json:"name"`
+	AssetClass            string  `json:"asset_class"` // "STOCK", "ETF", "OPTION_CALL", "OPTION_PUT"
+	Market                string  `json:"market"`      // "Bourse", "Farabourse"
+	UnderlyingSymbol      string  `json:"underlying_symbol,omitempty"`
+	UaInsCode             string  `json:"ua_ins_code,omitempty"`
+	StrikePrice           float64 `json:"strike_price,omitempty"`
+	ContractSize          int     `json:"contract_size,omitempty"`
+	BeginDate             string  `json:"begin_date,omitempty"`
+	ExpiryDate            string  `json:"expiry_date,omitempty"`
+	RemainedDays          int     `json:"remained_days,omitempty"`
+	Status                string  `json:"status"` // "ACTIVE", "EXPIRED", "DELISTED"
+	IsActive              bool    `json:"is_active"`
+	LastPrice             float64 `json:"last_price,omitempty"`
+	ClosePrice            float64 `json:"close_price,omitempty"`
+	OpenPositions         int     `json:"open_positions,omitempty"`
+	TradeCount            int     `json:"trade_count,omitempty"`
+	TradeVolume           int64   `json:"trade_volume,omitempty"`
+	TradeValue            float64 `json:"trade_value,omitempty"`
+	DiscoveredBy          string  `json:"discovered_by"`
+	DiscoveredAt          string  `json:"discovered_at"`
 }
 
 // FullRegistrySummary provides statistical overview of discovered instruments.
 type FullRegistrySummary struct {
-	GeneratedAt         time.Time      `json:"generated_at"`
-	TotalInstruments    int            `json:"total_instruments"`
-	UnderlyingsCount    int            `json:"underlyings_count"`
-	ActiveOptionsCount  int            `json:"active_options_count"`
-	ExpiredOptionsCount int            `json:"expired_options_count"`
-	CallCount           int            `json:"call_count"`
-	PutCount            int            `json:"put_count"`
-	ExpiriesCount       int            `json:"expiries_count"`
-	UnderlyingsSummary  map[string]int `json:"underlyings_summary"`
+	HistoryDatesCompleted  int            `json:"history_dates_completed"`
+	HistoryStartDate       string         `json:"history_start_date,omitempty"`
+	HistoryEndDate         string         `json:"history_end_date,omitempty"`
+	HistoricalOptionsAdded int            `json:"historical_options_added"`
+	EstimatedContractSizes int            `json:"estimated_contract_sizes"`
+	GeneratedAt            time.Time      `json:"generated_at"`
+	TotalInstruments       int            `json:"total_instruments"`
+	UnderlyingsCount       int            `json:"underlyings_count"`
+	ActiveOptionsCount     int            `json:"active_options_count"`
+	ExpiredOptionsCount    int            `json:"expired_options_count"`
+	CallCount              int            `json:"call_count"`
+	PutCount               int            `json:"put_count"`
+	ExpiriesCount          int            `json:"expiries_count"`
+	UnderlyingsSummary     map[string]int `json:"underlyings_summary"`
 }
 
 // FullRegistryOptions controls E1-5 full registry discovery execution.
 type FullRegistryOptions struct {
+	HistoryStartDate  string
+	HistoryEndDate    string
+	HistoryDates      []string
+	HistoryFixtureDir string
+	HistoryCacheDir   string
+	RefreshHistory    bool
+	ContractSizes     map[string]int
+
 	UseOfflineFixture bool
 	FixturePath       string
 	RegistryDir       string
@@ -182,6 +203,8 @@ type TradeTickRaw struct {
 
 // TickManifest matches E2-2 data/manifests/ticks/{insCode}_{date}_manifest.json.
 type TickManifest struct {
+	Version      int       `json:"version"`
+	Offline      bool      `json:"offline"`
 	InsCode      string    `json:"insCode"`
 	Date         string    `json:"date"`
 	Status       string    `json:"status"`
@@ -209,6 +232,8 @@ type CleanTickRecord struct {
 
 // TickIngestOptions controls E2-2 sample tick ingestion execution.
 type TickIngestOptions struct {
+	CachePath string // verified raw cache supplied by production resume
+
 	InsCode           string
 	DateStr           string
 	ContractSize      int

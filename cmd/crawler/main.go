@@ -3,11 +3,14 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/QuantDevelopers/Backend/bootstrap"
@@ -24,14 +27,14 @@ func main() {
 	registryDir := flag.String("registry-dir", "data/registry", "output directory for registry JSONs")
 	dataDir := flag.String("data-dir", "data", "base output directory for raw/manifests/clean artifacts")
 	insCode := flag.String("ins-code", "", "TSETMC insCode filter (defaults to 42511156565416187 in tick-sample mode)")
-	dateStr := flag.String("date", "20261028", "trading date (YYYYMMDD) for tick-sample mode")
+	dateStr := flag.String("date", "", "trading date (YYYYMMDD) for tick-sample mode")
 	datesCSV := flag.String("dates", "", "comma-separated YYYYMMDD dates for production mode (empty = derive from calendar/daily_history)")
 	daysBack := flag.Int("days-back", 5, "max recent trading days per instrument when deriving dates in production mode (0 = full)")
 	full := flag.Bool("full", false, "run full instrument discovery (E1-5) or full historical crawl (E2-4)")
 	orderDesc := flag.Bool("order-desc", true, "crawl newest to oldest trading days in reverse chronological order (E2-4)")
 	startDate := flag.String("start-date", "", "optional start date lower bound (YYYYMMDD) for crawl")
 	endDate := flag.String("end-date", "", "optional end date upper bound (YYYYMMDD) for crawl")
-	calendarPath := flag.String("calendar", "data/trading_calendar.json", "path to trading calendar JSON file (E1-7 / E2-4)")
+	calendarPath := flag.String("calendar", "", "optional path to trading calendar JSON file (E1-7 / E2-4)")
 	includeExpired := flag.Bool("include-expired", true, "include expired contracts in full discovery registry (E1-5)")
 	workers := flag.Int("workers", 3, "concurrent worker goroutines for production mode")
 	resume := flag.Bool("resume", true, "skip completed (insCode, date) tasks with valid manifests in production mode")
@@ -44,7 +47,31 @@ func main() {
 	limit := flag.Int("limit", 0, "optional cap on number of instruments in daily-history mode")
 	saveRaw := flag.Bool("save-raw", true, "save raw daily payloads under <data-dir>/raw/daily")
 	timeout := flag.Duration("timeout", 15*time.Minute, "crawler execution timeout")
+	historyFixtures := flag.String("history-fixtures", "", "directory containing YYYYMMDD.json archive fixtures")
+	historyCache := flag.String("history-cache", "", "directory for checksummed historical snapshots")
+	contractSizesPath := flag.String("contract-sizes", "", "JSON object mapping historical insCode to verified contract size")
 	flag.Parse()
+	var archiveDates []string
+	for _, day := range strings.Split(*datesCSV, ",") {
+		if day = strings.TrimSpace(day); day != "" {
+			archiveDates = append(archiveDates, day)
+		}
+	}
+	var sizeOverrides map[string]int
+	if *contractSizesPath != "" {
+		raw, e := os.ReadFile(*contractSizesPath)
+		if e != nil {
+			panic(e)
+		}
+		if e = json.Unmarshal(raw, &sizeOverrides); e != nil {
+			panic(e)
+		}
+		for code, size := range sizeOverrides {
+			if size <= 0 {
+				panic("invalid contract size for " + code)
+			}
+		}
+	}
 
 	config := bootstrap.Run()
 	var (
@@ -61,13 +88,16 @@ func main() {
 	}
 	defer app.Logger.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	signalCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ctx, cancel := context.WithTimeout(signalCtx, *timeout)
 	defer cancel()
 
 	switch *mode {
 	case "discover":
 		if *full {
 			res, err := app.DiscoveryService.DiscoverFullRegistry(ctx, crawlerdto.FullRegistryOptions{
+				HistoryStartDate: *startDate, HistoryEndDate: *endDate, HistoryDates: archiveDates, HistoryFixtureDir: *historyFixtures, HistoryCacheDir: *historyCache, RefreshHistory: *force, ContractSizes: sizeOverrides,
 				UseOfflineFixture: *offline,
 				FixturePath:       *fixturePath,
 				RegistryDir:       *registryDir,
@@ -114,6 +144,7 @@ func main() {
 		)
 	case "full-discovery":
 		res, err := app.DiscoveryService.DiscoverFullRegistry(ctx, crawlerdto.FullRegistryOptions{
+			HistoryStartDate: *startDate, HistoryEndDate: *endDate, HistoryDates: archiveDates, HistoryFixtureDir: *historyFixtures, HistoryCacheDir: *historyCache, RefreshHistory: *force, ContractSizes: sizeOverrides,
 			UseOfflineFixture: *offline,
 			FixturePath:       *fixturePath,
 			RegistryDir:       *registryDir,
@@ -198,7 +229,13 @@ func main() {
 		}
 		isFullCrawl := *mode == "full-crawl" || *full
 		daysBackVal := *daysBack
-		if isFullCrawl && daysBackVal == 5 && len(parsedDates) == 0 && *startDate == "" {
+		daysSpecified := false
+		flag.Visit(func(f *flag.Flag) {
+			if f.Name == "days-back" {
+				daysSpecified = true
+			}
+		})
+		if isFullCrawl && !daysSpecified {
 			// for full crawl without explicit days-back override, use 0 (full available)
 			daysBackVal = 0
 		}

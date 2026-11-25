@@ -95,8 +95,7 @@ func (s *DailyHistoryCrawlerServiceTestSuite) TestCrawlOfflineFixturesWithPostgr
 		missingIDAsset,
 	}, nil).Once()
 
-	active := true
-	s.optionRepo.On("GetAll", s.db, domainrepo.OptionFilter{IsActive: &active}).Return([]*entity.OptionContract{
+	s.optionRepo.On("GetAll", s.db, domainrepo.OptionFilter{}).Return([]*entity.OptionContract{
 		{Model: database.Model{ID: 10}, SymbolFA: "ضهرم1033", TSETMCID: &optIDStr, IsActive: true},
 	}, nil).Once()
 
@@ -149,7 +148,7 @@ func (s *DailyHistoryCrawlerServiceTestSuite) TestCircuitBreakerStopsCrawlCleanl
 		IncludeOptions:     false,
 		DisableFallback:    true,
 	})
-	s.Require().NoError(err)
+	s.Require().Error(err)
 	s.True(res.CircuitBroken)
 	s.Equal(2, res.InstrumentsTotal)
 	s.Equal(0, res.InstrumentsSucceeded)

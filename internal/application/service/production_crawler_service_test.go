@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -118,8 +119,9 @@ func (s *ProductionCrawlerServiceTestSuite) TestConcurrentWorkerPoolPersistDBAnd
 		FixturePath:        fixturePath,
 	})
 	s.Require().NoError(err)
-	s.Equal(0, secondReport.TotalQueued)
-	s.Equal(3, secondReport.SkippedResume)
+	s.Equal(3, secondReport.TotalQueued)
+	s.Equal(3, secondReport.ReplayedCache)
+	s.Equal(0, secondReport.SkippedResume)
 
 	// Corrupt one raw file -> resume detects checksum mismatch and queues only that 1 task.
 	corruptPath := filepath.Join(dataDir, "raw", "ticks", optID, "20261028.json")
@@ -136,9 +138,10 @@ func (s *ProductionCrawlerServiceTestSuite) TestConcurrentWorkerPoolPersistDBAnd
 		FixturePath:        fixturePath,
 	})
 	s.Require().NoError(err)
-	s.Equal(1, thirdReport.TotalQueued)
-	s.Equal(2, thirdReport.SkippedResume)
-	s.Equal(1, thirdReport.Succeeded)
+	s.Equal(3, thirdReport.TotalQueued)
+	s.Equal(2, thirdReport.ReplayedCache)
+	s.Equal(0, thirdReport.SkippedResume)
+	s.Equal(3, thirdReport.Succeeded)
 }
 
 func (s *ProductionCrawlerServiceTestSuite) TestCircuitBreakerHaltsWorkersAndStatusReadsDiskAndDB() {
@@ -159,7 +162,7 @@ func (s *ProductionCrawlerServiceTestSuite) TestCircuitBreakerHaltsWorkersAndSta
 		IncludeOptions:     false,
 		DisableFallback:    true,
 	})
-	s.Require().NoError(err)
+	s.Require().Error(err)
 	s.True(report.CircuitBroken)
 	s.GreaterOrEqual(report.Failed, 1)
 
@@ -270,4 +273,46 @@ func (s *ProductionCrawlerServiceTestSuite) TestFullTickCrawlNewestToOldestOrder
 
 func TestProductionCrawlerServiceSuite(t *testing.T) {
 	suite.Run(t, new(ProductionCrawlerServiceTestSuite))
+}
+
+func (s *ProductionCrawlerServiceTestSuite) TestExplicitDatesNeverFallBackOutsideWindow() {
+	code := "123"
+	s.underlyingRepo.On("GetAll", s.db).Return([]*entity.UnderlyingAsset{{Model: database.Model{ID: 1}, TSETMCID: &code, IsActive: true}}, nil)
+	tasks, _, err := s.service.BuildQueue(crawlerdto.ProductionCrawlOptions{IncludeUnderlyings: true, Dates: []string{"20261028"}, StartDate: "20261101", EndDate: "20261130"})
+	s.Require().NoError(err)
+	s.Empty(tasks)
+	for _, bad := range []crawlerdto.ProductionCrawlOptions{{Dates: []string{"20260230"}}, {StartDate: "20261101", EndDate: "20261001"}, {InsCode: "../outside"}} {
+		_, _, err = s.service.BuildQueue(bad)
+		s.Error(err)
+	}
+}
+
+func (s *ProductionCrawlerServiceTestSuite) TestHistoryErrorsNeverBecomeTodayOrCalendar() {
+	code := "123"
+	s.underlyingRepo.On("GetAll", s.db).Return([]*entity.UnderlyingAsset{{Model: database.Model{ID: 1}, TSETMCID: &code}}, nil)
+	s.dailyRepo.On("GetTradingDates", s.db, "UNDERLYING", uint(1), true).Return([]time.Time(nil), fmt.Errorf("database unavailable"))
+	_, _, err := s.service.BuildQueue(crawlerdto.ProductionCrawlOptions{IncludeUnderlyings: true})
+	s.ErrorContains(err, "database unavailable")
+}
+
+func (s *ProductionCrawlerServiceTestSuite) TestFullHistoryIncludesExpiredWithinLifetimeAndHonorsOrder() {
+	code := "123"
+	begin := time.Date(2026, 10, 26, 0, 0, 0, 0, time.UTC)
+	s.optionRepo.On("GetAll", s.db, domainrepo.OptionFilter{}).Return([]*entity.OptionContract{{Model: database.Model{ID: 3}, TSETMCID: &code, BeginDate: &begin, ExpirationDate: begin.AddDate(0, 0, 1), IsActive: false}}, nil)
+	tasks, _, err := s.service.BuildQueue(crawlerdto.ProductionCrawlOptions{FullHistory: true, IncludeOptions: true, Dates: []string{"20261025", "20261028", "20261027", "20261026"}, OrderDesc: false})
+	s.Require().NoError(err)
+	s.Require().Len(tasks, 2)
+	s.Equal("20261026", tasks[0].DateStr)
+	s.Equal("20261027", tasks[1].DateStr)
+}
+
+func (s *ProductionCrawlerServiceTestSuite) TestCancellationIsFailureWithPendingTasks() {
+	code := "123"
+	s.underlyingRepo.On("GetAll", s.db).Return([]*entity.UnderlyingAsset{{Model: database.Model{ID: 1}, TSETMCID: &code}}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, err := s.service.Run(ctx, crawlerdto.ProductionCrawlOptions{IncludeUnderlyings: true, Dates: []string{"20261028"}, DataDir: s.T().TempDir()})
+	s.Require().ErrorIs(err, context.Canceled)
+	s.Equal(1, result.Pending)
+	s.Equal("failed", result.State)
 }

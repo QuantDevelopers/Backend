@@ -70,6 +70,9 @@ func (s *DailyHistoryCrawlerService) ParseDailyPayload(
 	instrumentType string,
 	instrumentID uint,
 ) ([]*entity.DailyHistory, error) {
+	if err := requireArray(raw, "closingPriceDaily"); err != nil {
+		return nil, err
+	}
 	var payload crawlerdto.ClosingPriceDailyPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, fmt.Errorf("decode closingPriceDaily JSON: %w", err)
@@ -149,6 +152,14 @@ func (s *DailyHistoryCrawlerService) Crawl(
 	ctx context.Context,
 	opts crawlerdto.DailyHistoryCrawlOptions,
 ) (*crawlerdto.DailyHistoryCrawlResult, error) {
+	if opts.TopDays < 0 || opts.Limit < 0 {
+		return nil, fmt.Errorf("daily crawl limits cannot be negative")
+	}
+	if opts.InsCode != "" {
+		if err := validateInsCode(opts.InsCode); err != nil {
+			return nil, err
+		}
+	}
 	if !opts.IncludeUnderlyings && !opts.IncludeOptions {
 		opts.IncludeUnderlyings = true
 		opts.IncludeOptions = true
@@ -205,6 +216,9 @@ func (s *DailyHistoryCrawlerService) Crawl(
 		}
 	}
 
+	if result.InstrumentsFailed > 0 {
+		return result, fmt.Errorf("daily crawl incomplete: %d instruments failed", result.InstrumentsFailed)
+	}
 	return result, nil
 }
 
@@ -212,6 +226,9 @@ func (s *DailyHistoryCrawlerService) resolveTargets(opts crawlerdto.DailyHistory
 	insFilter := strings.TrimSpace(opts.InsCode)
 
 	if s.db == nil {
+		if !opts.UseOfflineFixture {
+			return nil, fmt.Errorf("live daily crawl requires persisted registry (-persist-db)")
+		}
 		var synthetic []dailyTarget
 		if opts.IncludeUnderlyings {
 			synthetic = append(synthetic, dailyTarget{
@@ -239,7 +256,7 @@ func (s *DailyHistoryCrawlerService) resolveTargets(opts crawlerdto.DailyHistory
 			return nil, fmt.Errorf("list underlyings for daily crawl: %w", err)
 		}
 		for _, a := range assets {
-			if a.TSETMCID == nil || strings.TrimSpace(*a.TSETMCID) == "" || !a.IsActive {
+			if a.TSETMCID == nil || strings.TrimSpace(*a.TSETMCID) == "" {
 				continue
 			}
 			targets = append(targets, dailyTarget{
@@ -252,8 +269,7 @@ func (s *DailyHistoryCrawlerService) resolveTargets(opts crawlerdto.DailyHistory
 	}
 
 	if opts.IncludeOptions && s.optionRepo != nil {
-		active := true
-		contracts, err := s.optionRepo.GetAll(s.db, domainrepo.OptionFilter{IsActive: &active})
+		contracts, err := s.optionRepo.GetAll(s.db, domainrepo.OptionFilter{})
 		if err != nil {
 			return nil, fmt.Errorf("list option contracts for daily crawl: %w", err)
 		}
@@ -291,9 +307,13 @@ func (s *DailyHistoryCrawlerService) crawlOneTarget(
 		return summary, circuitBroken
 	}
 
+	if err := validateInsCode(target.InsCode); err != nil {
+		summary.Error = err.Error()
+		return summary, false
+	}
 	if opts.SaveRaw {
 		rawPath := filepath.Join(opts.RawDir, fmt.Sprintf("%s.json", target.InsCode))
-		if writeErr := os.WriteFile(rawPath, raw, 0o644); writeErr != nil {
+		if writeErr := writeAtomic(rawPath, raw); writeErr != nil {
 			summary.Error = fmt.Sprintf("write raw daily payload %s: %v", rawPath, writeErr)
 			return summary, false
 		}
@@ -352,12 +372,6 @@ func (s *DailyHistoryCrawlerService) fetchDailyPayload(
 				domainlogger.Int("status_code", status),
 				domainlogger.Error("error", err),
 			)
-		}
-	}
-
-	if !opts.DisableFallback {
-		if raw, err := os.ReadFile(fixturePath); err == nil {
-			return raw, false, nil
 		}
 	}
 

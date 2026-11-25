@@ -57,6 +57,9 @@ func NewDiscoveryService(
 }
 
 func (s *DiscoveryService) ParseMarketWatch(raw []byte) ([]crawlerdto.DiscoveredUnderlying, []crawlerdto.DiscoveredContract, error) {
+	if err := requireArray(raw, "instrumentOptMarketWatch"); err != nil {
+		return nil, nil, err
+	}
 	var payload crawlerdto.MarketWatchPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
 		return nil, nil, fmt.Errorf("decode market watch JSON: %w", err)
@@ -173,6 +176,9 @@ func (s *DiscoveryService) ParseMarketWatch(raw []byte) ([]crawlerdto.Discovered
 }
 
 func (s *DiscoveryService) Discover(ctx context.Context, opts crawlerdto.DiscoveryOptions) (*crawlerdto.DiscoveryResult, error) {
+	if opts.PersistDB && (s.db == nil || s.underlyingRepo == nil || s.optionRepo == nil) {
+		return nil, fmt.Errorf("database repositories required for registry persistence")
+	}
 	fixturePath := opts.FixturePath
 	if fixturePath == "" {
 		fixturePath = defaultDiscoveryFixture
@@ -231,6 +237,9 @@ func (s *DiscoveryService) DiscoverFullRegistry(
 	ctx context.Context,
 	opts crawlerdto.FullRegistryOptions,
 ) (*crawlerdto.FullRegistryResult, error) {
+	if opts.PersistDB && (s.db == nil || s.underlyingRepo == nil || s.optionRepo == nil) {
+		return nil, fmt.Errorf("database repositories required for registry persistence")
+	}
 	fixturePath := opts.FixturePath
 	if fixturePath == "" {
 		fixturePath = defaultDiscoveryFixture
@@ -250,16 +259,28 @@ func (s *DiscoveryService) DiscoverFullRegistry(
 		return nil, err
 	}
 
-	todayStr := time.Now().UTC().Format("20060102")
+	underlyings, allContracts, history, err := s.discoverHistory(ctx, opts, underlyings, allContracts)
+	if err != nil {
+		return nil, err
+	}
+	todayStr := marketToday()
 	activeContracts := make([]crawlerdto.DiscoveredContract, 0, len(allContracts))
 	expiredContracts := make([]crawlerdto.DiscoveredContract, 0, len(allContracts)/4)
 	seenContracts := make(map[string]bool, len(allContracts))
 
 	for _, c := range allContracts {
+		if _, err := parseTSETMCDate(c.ExpiryDate); err != nil {
+			return nil, err
+		}
+		if seenContracts[c.InsCode] {
+			continue
+		}
 		seenContracts[c.InsCode] = true
-		isExpired := c.RemainedDays <= 0 || (c.ExpiryDate != "" && c.ExpiryDate < todayStr)
+		isExpired := c.ExpiryDate != "" && c.ExpiryDate < todayStr
 		if isExpired {
-			expiredContracts = append(expiredContracts, c)
+			if opts.IncludeExpired {
+				expiredContracts = append(expiredContracts, c)
+			}
 		} else {
 			activeContracts = append(activeContracts, c)
 		}
@@ -268,7 +289,10 @@ func (s *DiscoveryService) DiscoverFullRegistry(
 	// Also inspect database for any known contracts not in active watch or already marked expired
 	if opts.IncludeExpired && s.db != nil && s.optionRepo != nil {
 		dbContracts, err := s.optionRepo.GetAll(s.db, domainrepo.OptionFilter{})
-		if err == nil {
+		if err != nil {
+			return nil, fmt.Errorf("read historical registry: %w", err)
+		}
+		{
 			for _, dbc := range dbContracts {
 				if dbc.TSETMCID == nil {
 					continue
@@ -284,6 +308,18 @@ func (s *DiscoveryService) DiscoverFullRegistry(
 				if dbc.UnderlyingAsset != nil {
 					uaSym = dbc.UnderlyingAsset.SymbolFA
 					if dbc.UnderlyingAsset.TSETMCID != nil {
+						found := false
+						for _, u := range underlyings {
+							if u.InsCode == *dbc.UnderlyingAsset.TSETMCID {
+								found = true
+								break
+							}
+						}
+						if !found {
+							underlyings = append(underlyings, crawlerdto.DiscoveredUnderlying{InsCode: *dbc.UnderlyingAsset.TSETMCID, Symbol: uaSym, Name: dbc.UnderlyingAsset.NameFA, Market: dbc.UnderlyingAsset.MarketType, DiscoveredBy: "database_historical_registry"})
+						}
+					}
+					if dbc.UnderlyingAsset.TSETMCID != nil {
 						uaIns = *dbc.UnderlyingAsset.TSETMCID
 					}
 				}
@@ -295,7 +331,7 @@ func (s *DiscoveryService) DiscoverFullRegistry(
 				if strings.EqualFold(dbc.ContractType, "put") {
 					side = "Put"
 				}
-				expiredContracts = append(expiredContracts, crawlerdto.DiscoveredContract{
+				historical := crawlerdto.DiscoveredContract{
 					InsCode:          ins,
 					Symbol:           dbc.SymbolFA,
 					Name:             dbc.NameFA,
@@ -308,7 +344,12 @@ func (s *DiscoveryService) DiscoverFullRegistry(
 					ExpiryDate:       expStr,
 					RemainedDays:     0,
 					DiscoveredBy:     "database_historical_registry",
-				})
+				}
+				if expStr < todayStr {
+					expiredContracts = append(expiredContracts, historical)
+				} else {
+					activeContracts = append(activeContracts, historical)
+				}
 			}
 		}
 	}
@@ -323,11 +364,12 @@ func (s *DiscoveryService) DiscoverFullRegistry(
 
 	for _, u := range underlyings {
 		assetClass := "STOCK"
-		if inferMarketLabel(u.Symbol) == "صندوق" {
+		if u.Market == "صندوق" || strings.HasPrefix(u.ISIN, "IRT") || inferMarketLabel(u.Symbol) == "صندوق" {
 			assetClass = "ETF"
 		}
 		instruments = append(instruments, crawlerdto.RegistryInstrument{
-			InsCode:      u.InsCode,
+			InsCode: u.InsCode,
+			ISIN:    u.ISIN, InstrumentID: u.InstrumentID,
 			Symbol:       u.Symbol,
 			Name:         u.Name,
 			AssetClass:   assetClass,
@@ -356,7 +398,8 @@ func (s *DiscoveryService) DiscoverFullRegistry(
 			expiriesSet[c.ExpiryDate] = struct{}{}
 		}
 		instruments = append(instruments, crawlerdto.RegistryInstrument{
-			InsCode:          c.InsCode,
+			InsCode: c.InsCode,
+			ISIN:    c.ISIN, InstrumentID: c.InstrumentID, ContractSizeEstimated: c.ContractSizeEstimated,
 			Symbol:           c.Symbol,
 			Name:             c.Name,
 			AssetClass:       assetClass,
@@ -396,6 +439,7 @@ func (s *DiscoveryService) DiscoverFullRegistry(
 	})
 
 	summary := crawlerdto.FullRegistrySummary{
+		HistoryDatesCompleted: len(history.Dates), HistoricalOptionsAdded: history.Added, EstimatedContractSizes: history.EstimatedSizes,
 		GeneratedAt:         time.Now().UTC(),
 		TotalInstruments:    len(instruments),
 		UnderlyingsCount:    len(underlyings),
@@ -407,6 +451,10 @@ func (s *DiscoveryService) DiscoverFullRegistry(
 		UnderlyingsSummary:  underlyingsSummary,
 	}
 
+	if len(history.Dates) > 0 {
+		summary.HistoryStartDate = history.Dates[len(history.Dates)-1]
+		summary.HistoryEndDate = history.Dates[0]
+	}
 	if err := os.MkdirAll(registryDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create registry dir %s: %w", registryDir, err)
 	}
@@ -490,18 +538,7 @@ func (s *DiscoveryService) fetchPayload(ctx context.Context, useOffline bool, fi
 		}
 	}
 
-	if !disableFallback {
-		if raw, err := os.ReadFile(fixturePath); err == nil {
-			if s.logger != nil {
-				s.logger.Info("falling back to cached option watch fixture",
-					domainlogger.String("fixture_path", fixturePath),
-				)
-			}
-			return raw, nil
-		}
-	}
-
-	return nil, fmt.Errorf("failed to fetch TSETMC option watch and no offline fixture found at %s", fixturePath)
+	return nil, fmt.Errorf("live discovery failed; offline fixtures require explicit offline mode (%s)", fixturePath)
 }
 
 func (s *DiscoveryService) persistToPostgres(underlyings []crawlerdto.DiscoveredUnderlying, contracts []crawlerdto.DiscoveredContract) (int, error) {
@@ -512,6 +549,9 @@ func (s *DiscoveryService) persistToPostgres(underlyings []crawlerdto.Discovered
 		existing, err := s.underlyingRepo.GetBySymbol(s.db, u.Symbol)
 		if err != nil {
 			return 0, fmt.Errorf("lookup underlying %s: %w", u.Symbol, err)
+		}
+		if existing != nil && existing.TSETMCID != nil && *existing.TSETMCID != insCode {
+			existing = nil
 		}
 		if existing != nil {
 			if existing.TSETMCID == nil {
@@ -525,6 +565,7 @@ func (s *DiscoveryService) persistToPostgres(underlyings []crawlerdto.Discovered
 		}
 
 		asset := entity.UnderlyingAsset{
+			ISIN:       optionalString(u.ISIN),
 			SymbolFA:   u.Symbol,
 			NameFA:     u.Name,
 			TSETMCID:   &insCode,
@@ -548,11 +589,11 @@ func (s *DiscoveryService) persistToPostgres(underlyings []crawlerdto.Discovered
 	for _, c := range contracts {
 		uaID, ok := uaIDByInsCode[c.UaInsCode]
 		if !ok || uaID == 0 {
-			continue
+			return 0, fmt.Errorf("missing underlying for contract %s", c.Symbol)
 		}
 		expiry, err := parseTSETMCDate(c.ExpiryDate)
 		if err != nil {
-			continue
+			return 0, err
 		}
 		var beginPtr *time.Time
 		if b, err := parseTSETMCDate(c.BeginDate); err == nil {
@@ -561,6 +602,7 @@ func (s *DiscoveryService) persistToPostgres(underlyings []crawlerdto.Discovered
 		insCode := c.InsCode
 		entities = append(entities, &entity.OptionContract{
 			UnderlyingAssetID: uaID,
+			ISIN:              optionalString(c.ISIN),
 			SymbolFA:          c.Symbol,
 			NameFA:            c.Name,
 			ContractType:      strings.ToUpper(c.Side),
@@ -584,7 +626,7 @@ func (s *DiscoveryService) persistExpiredContractsToPostgres(underlyings []crawl
 	uaIDByInsCode := make(map[string]uint, len(underlyings))
 	for _, u := range underlyings {
 		insCode := u.InsCode
-		existing, err := s.underlyingRepo.GetBySymbol(s.db, u.Symbol)
+		existing, err := s.underlyingRepo.GetByTSETMCID(s.db, u.InsCode)
 		if err == nil && existing != nil {
 			uaIDByInsCode[insCode] = existing.ID
 		}
@@ -601,11 +643,11 @@ func (s *DiscoveryService) persistExpiredContractsToPostgres(underlyings []crawl
 			}
 		}
 		if uaID == 0 {
-			continue
+			return 0, fmt.Errorf("missing underlying for expired contract %s", c.Symbol)
 		}
 		expiry, err := parseTSETMCDate(c.ExpiryDate)
 		if err != nil {
-			continue
+			return 0, err
 		}
 		var beginPtr *time.Time
 		if b, err := parseTSETMCDate(c.BeginDate); err == nil {
@@ -614,6 +656,7 @@ func (s *DiscoveryService) persistExpiredContractsToPostgres(underlyings []crawl
 		insCode := c.InsCode
 		entities = append(entities, &entity.OptionContract{
 			UnderlyingAssetID: uaID,
+			ISIN:              optionalString(c.ISIN),
 			SymbolFA:          c.Symbol,
 			NameFA:            c.Name,
 			ContractType:      strings.ToUpper(c.Side),
@@ -664,7 +707,7 @@ func writeJSONPretty(path string, v interface{}) error {
 	if err != nil {
 		return fmt.Errorf("marshal %s: %w", path, err)
 	}
-	if err := os.WriteFile(path, encoded, 0o644); err != nil {
+	if err := writeAtomic(path, encoded); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil

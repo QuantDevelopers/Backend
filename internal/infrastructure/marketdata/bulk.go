@@ -2,6 +2,7 @@ package marketdata
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,6 +25,9 @@ func ReplaceRawDay(ctx context.Context, db database.Database, kind string, id ui
 	if (kind != "UNDERLYING" && kind != "OPTION") || id == 0 {
 		return 0, fmt.Errorf("invalid instrument")
 	}
+	if _, inTx := db.GetDB().Statement.ConnPool.(*sql.Tx); inTx {
+		return 0, fmt.Errorf("COPY replacement requires a pooled database, not an enclosing transaction")
+	}
 	pool, err := db.GetDB().DB()
 	if err != nil {
 		return 0, err
@@ -43,7 +47,7 @@ func ReplaceRawDay(ctx context.Context, db database.Database, kind string, id ui
 		if beginErr != nil {
 			return beginErr
 		}
-		defer func() { _ = tx.Rollback(ctx) }()
+		defer rollback(tx)
 		key := fmt.Sprintf("%s/%d/%s", kind, id, day.Format("2006-01-02"))
 		if _, e := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, key); e != nil {
 			return e
@@ -78,7 +82,10 @@ func ReplaceRawDay(ctx context.Context, db database.Database, kind string, id ui
 		}
 		return tx.Commit(ctx)
 	})
-	return int(count), err
+	if err != nil {
+		return 0, err
+	}
+	return int(count), nil
 }
 
 // RawRecord is the newline-delimited JSON interchange format for the bulk loader.
@@ -102,7 +109,7 @@ func (s Store) ImportRaw(ctx context.Context, r io.Reader) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer func() { _ = tx.Rollback(ctx) }()
+	defer rollback(tx)
 	// Prevent overlapping imports; block other writers during replacement.
 	if _, err = tx.Exec(ctx, `LOCK TABLE ticks_raw IN SHARE ROW EXCLUSIVE MODE`); err != nil {
 		return 0, err
