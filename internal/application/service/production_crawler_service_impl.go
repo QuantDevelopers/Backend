@@ -76,6 +76,9 @@ func (s *ProductionCrawlerService) BuildQueue(
 		dataDir = defaultDataBaseDir
 	}
 
+	if err := validateCrawlOptions(opts); err != nil {
+		return nil, 0, err
+	}
 	candidates, err := s.resolveProductionTargets(opts)
 	if err != nil {
 		return nil, 0, err
@@ -93,18 +96,24 @@ func (s *ProductionCrawlerService) BuildQueue(
 		explicitDates = append(explicitDates, d)
 	}
 
-	todayStr := time.Now().UTC().Format("20060102")
+	todayStr := marketToday()
 	var tasks []crawlerdto.TickCrawlTask
 	skippedResume := 0
 
 	for _, target := range candidates {
 		dates := explicitDates
-		if len(dates) == 0 {
-			dates = s.resolveTargetDates(target, opts, todayStr)
+		if len(opts.Dates) == 0 {
+			dates, err = s.resolveTargetDates(target, opts, todayStr)
+			if err != nil {
+				return nil, 0, err
+			}
 		}
 
 		for _, dateStr := range dates {
-			if opts.Resume && !opts.Force && isTaskCompletedOnDisk(dataDir, target.InsCode, dateStr) {
+			if (target.BeginDate != "" && dateStr < target.BeginDate) || (target.EndDate != "" && dateStr > target.EndDate) {
+				continue
+			}
+			if opts.Resume && !opts.Force && !opts.PersistDB && taskReusable(dataDir, target.InsCode, dateStr, opts.UseOfflineFixture) {
 				skippedResume++
 				continue
 			}
@@ -126,9 +135,6 @@ func (s *ProductionCrawlerService) BuildQueue(
 
 	// Sort tasks deterministically (E2-4 default: newest to oldest dates)
 	sortDesc := opts.OrderDesc
-	if !opts.OrderDesc && len(opts.Dates) == 0 {
-		sortDesc = true
-	}
 	sort.Slice(tasks, func(i, j int) bool {
 		if tasks[i].DateStr != tasks[j].DateStr {
 			if sortDesc {
@@ -153,6 +159,9 @@ func (s *ProductionCrawlerService) Run(
 	ctx context.Context,
 	opts crawlerdto.ProductionCrawlOptions,
 ) (*crawlerdto.ProductionCrawlReport, error) {
+	if opts.PersistDB && (s.db == nil || s.tickRawRepo == nil) {
+		return nil, errors.New("database and tick repository are required for persistence")
+	}
 	if s.tickIngestor == nil {
 		return nil, errors.New("tick ingestor service is required")
 	}
@@ -190,12 +199,12 @@ func (s *ProductionCrawlerService) Run(
 		}
 	}
 	orderLabel := "desc"
-	if !opts.OrderDesc && len(opts.Dates) > 0 {
+	if !opts.OrderDesc {
 		orderLabel = "asc"
 	}
 
 	report := &crawlerdto.ProductionCrawlReport{
-		JobID:         fmt.Sprintf("crawl-%d", startedAt.Unix()),
+		JobID:         fmt.Sprintf("crawl-%d", startedAt.UnixNano()),
 		StartedAt:     startedAt,
 		Order:         orderLabel,
 		NewestDate:    newestDate,
@@ -205,6 +214,13 @@ func (s *ProductionCrawlerService) Run(
 		SkippedResume: skippedResume,
 	}
 
+	report.State = "running"
+	report.Pending = len(tasks)
+	if err := writeStatusReport(dataDir, report); err != nil {
+		return report, err
+	}
+	var statusErr error
+	lastStatusWrite := time.Now()
 	if len(tasks) > 0 {
 		workerCtx, cancelWorkers := context.WithCancel(ctx)
 		defer cancelWorkers()
@@ -227,7 +243,12 @@ func (s *ProductionCrawlerService) Run(
 						return
 					}
 
+					cachePath := ""
+					if opts.Resume && !opts.Force && opts.PersistDB && taskReusable(dataDir, task.InsCode, task.DateStr, opts.UseOfflineFixture) {
+						cachePath = filepath.Join(dataDir, "raw", "ticks", task.InsCode, task.DateStr+".json")
+					}
 					res, ingestErr := s.tickIngestor.IngestSample(workerCtx, crawlerdto.TickIngestOptions{
+						CachePath:         cachePath,
 						InsCode:           task.InsCode,
 						DateStr:           task.DateStr,
 						ContractSize:      task.ContractSize,
@@ -246,6 +267,14 @@ func (s *ProductionCrawlerService) Run(
 							report.CircuitBroken = true
 							cancelWorkers()
 						}
+						report.Pending = report.TotalQueued - report.Succeeded - report.Failed
+						if time.Since(lastStatusWrite) >= time.Second {
+							statusErr = writeStatusReport(dataDir, report)
+							lastStatusWrite = time.Now()
+							if statusErr != nil {
+								cancelWorkers()
+							}
+						}
 						mu.Unlock()
 						continue
 					}
@@ -260,7 +289,7 @@ func (s *ProductionCrawlerService) Run(
 							rawEntities := make([]*entity.TickRaw, 0, len(res.Records))
 							for _, rec := range res.Records {
 								seq := rec.NTran
-								rawJSON, _ := json.Marshal(rec)
+								rawJSON, _ := json.Marshal(crawlerdto.TradeTickRaw{NTran: rec.NTran, HEven: rec.HEven, PTran: rec.Price, QTitTran: rec.Quantity, Canceled: boolInt(rec.IsCanceled)})
 								rawEntities = append(rawEntities, &entity.TickRaw{
 									InstrumentType: task.InstrumentType,
 									InstrumentID:   task.InstrumentID,
@@ -277,6 +306,9 @@ func (s *ProductionCrawlerService) Run(
 					}
 
 					mu.Lock()
+					if cachePath != "" {
+						report.ReplayedCache++
+					}
 					if dbErr != nil {
 						report.Failed++
 						if len(report.Errors) < 25 {
@@ -289,6 +321,14 @@ func (s *ProductionCrawlerService) Run(
 						}
 						report.TotalRecords += res.Manifest.RecordsCount
 						report.DBRowsSaved += dbSaved
+					}
+					report.Pending = report.TotalQueued - report.Succeeded - report.Failed
+					if time.Since(lastStatusWrite) >= time.Second {
+						statusErr = writeStatusReport(dataDir, report)
+						lastStatusWrite = time.Now()
+						if statusErr != nil {
+							cancelWorkers()
+						}
 					}
 					mu.Unlock()
 				}
@@ -305,7 +345,23 @@ func (s *ProductionCrawlerService) Run(
 		report.ThroughputRPS = math.Round(float64(report.Succeeded+report.Failed)/duration.Seconds()*100) / 100
 		report.ThroughputTicks = math.Round(float64(report.TotalRecords)/duration.Seconds()*100) / 100
 	}
-	_ = writeStatusReport(dataDir, report)
+	report.Pending = report.TotalQueued - report.Succeeded - report.Failed
+	report.State = "completed"
+	if report.Failed > 0 || report.Pending > 0 || ctx.Err() != nil || statusErr != nil {
+		report.State = "failed"
+	}
+	if err := writeStatusReport(dataDir, report); err != nil {
+		return report, err
+	}
+	if statusErr != nil {
+		return report, statusErr
+	}
+	if err := ctx.Err(); err != nil {
+		return report, err
+	}
+	if report.Failed > 0 || report.Pending > 0 {
+		return report, fmt.Errorf("crawl incomplete: failed=%d pending=%d", report.Failed, report.Pending)
+	}
 	return report, nil
 }
 
@@ -381,17 +437,21 @@ func (s *ProductionCrawlerService) GetStatus(dataDir string) (*crawlerdto.CrawlS
 }
 
 type productionTarget struct {
-	InstrumentType string
-	InstrumentID   uint
-	SymbolFA       string
-	InsCode        string
-	ContractSize   int
+	InstrumentType     string
+	InstrumentID       uint
+	SymbolFA           string
+	InsCode            string
+	ContractSize       int
+	BeginDate, EndDate string
 }
 
 func (s *ProductionCrawlerService) resolveProductionTargets(opts crawlerdto.ProductionCrawlOptions) ([]productionTarget, error) {
 	insFilter := strings.TrimSpace(opts.InsCode)
 
 	if s.db == nil {
+		if !opts.UseOfflineFixture {
+			return nil, errors.New("live production crawl requires persisted instrument registry (-persist-db)")
+		}
 		var synthetic []productionTarget
 		if opts.IncludeUnderlyings {
 			synthetic = append(synthetic, productionTarget{
@@ -421,7 +481,7 @@ func (s *ProductionCrawlerService) resolveProductionTargets(opts crawlerdto.Prod
 			return nil, fmt.Errorf("list underlyings for crawl queue: %w", err)
 		}
 		for _, a := range assets {
-			if a.TSETMCID == nil || strings.TrimSpace(*a.TSETMCID) == "" || !a.IsActive {
+			if a.TSETMCID == nil || strings.TrimSpace(*a.TSETMCID) == "" {
 				continue
 			}
 			out = append(out, productionTarget{
@@ -435,12 +495,23 @@ func (s *ProductionCrawlerService) resolveProductionTargets(opts crawlerdto.Prod
 	}
 
 	if opts.IncludeOptions && s.optionRepo != nil {
-		active := true
-		contracts, err := s.optionRepo.GetAll(s.db, domainrepo.OptionFilter{IsActive: &active})
+		filter := domainrepo.OptionFilter{}
+		if !opts.FullHistory {
+			active := true
+			filter.IsActive = &active
+		}
+		contracts, err := s.optionRepo.GetAll(s.db, filter)
 		if err != nil {
 			return nil, fmt.Errorf("list options for crawl queue: %w", err)
 		}
 		for _, c := range contracts {
+			begin, end := "", ""
+			if c.BeginDate != nil {
+				begin = c.BeginDate.Format("20060102")
+			}
+			if !c.ExpirationDate.IsZero() {
+				end = c.ExpirationDate.Format("20060102")
+			}
 			if c.TSETMCID == nil || strings.TrimSpace(*c.TSETMCID) == "" {
 				continue
 			}
@@ -454,6 +525,7 @@ func (s *ProductionCrawlerService) resolveProductionTargets(opts crawlerdto.Prod
 				SymbolFA:       c.SymbolFA,
 				InsCode:        strings.TrimSpace(*c.TSETMCID),
 				ContractSize:   cSize,
+				BeginDate:      begin, EndDate: end,
 			})
 		}
 	}
@@ -461,88 +533,106 @@ func (s *ProductionCrawlerService) resolveProductionTargets(opts crawlerdto.Prod
 	return filterProductionTargets(out, insFilter), nil
 }
 
-func (s *ProductionCrawlerService) resolveTargetDates(
-	target productionTarget,
-	opts crawlerdto.ProductionCrawlOptions,
-	fallbackToday string,
-) []string {
-	// 1. Check trading calendar JSON file (E1-7 / E2-4)
-	calPath := opts.CalendarPath
-	if calPath == "" {
-		calPath = "data/trading_calendar.json"
-	}
-	if calDates := loadTradingCalendarDates(calPath, opts.StartDate, opts.EndDate); len(calDates) > 0 {
-		if !opts.FullHistory && opts.DaysBack > 0 && len(calDates) > opts.DaysBack {
-			calDates = calDates[:opts.DaysBack]
-		}
-		return calDates
-	}
-
-	// 2. Check daily_history in PostgreSQL
-	if s.db != nil && s.dailyRepo != nil {
-		dates, err := s.dailyRepo.GetTradingDates(s.db, target.InstrumentType, target.InstrumentID, true)
-		if err == nil && len(dates) > 0 {
-			var filtered []string
-			for _, d := range dates {
-				dStr := d.Format("20060102")
-				if opts.StartDate != "" && dStr < opts.StartDate {
-					continue
-				}
-				if opts.EndDate != "" && dStr > opts.EndDate {
-					continue
-				}
-				filtered = append(filtered, dStr)
-			}
-			if len(filtered) > 0 {
-				if !opts.FullHistory && opts.DaysBack > 0 && len(filtered) > opts.DaysBack {
-					filtered = filtered[:opts.DaysBack]
-				}
-				return filtered
-			}
+func (s *ProductionCrawlerService) resolveTargetDates(target productionTarget, opts crawlerdto.ProductionCrawlOptions, today string) ([]string, error) {
+	var dates []string
+	if opts.CalendarPath != "" {
+		var err error
+		dates, err = loadTradingCalendarDates(opts.CalendarPath, opts.StartDate, opts.EndDate)
+		if err != nil {
+			return nil, err
 		}
 	}
-
-	// 3. Fallback
-	if opts.StartDate != "" && fallbackToday < opts.StartDate {
-		return nil
+	// DB history is authoritative; a sample calendar must never truncate it.
+	if s.db != nil && s.dailyRepo != nil && opts.CalendarPath == "" {
+		days, err := s.dailyRepo.GetTradingDates(s.db, target.InstrumentType, target.InstrumentID, true)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range days {
+			dates = append(dates, d.Format("20060102"))
+		}
+	} else if s.db == nil && opts.CalendarPath == "" && opts.UseOfflineFixture {
+		var err error
+		dates, err = loadTradingCalendarDates("data/trading_calendar.json", opts.StartDate, opts.EndDate)
+		if err != nil {
+			dates = []string{today}
+		}
 	}
-	if opts.EndDate != "" && fallbackToday > opts.EndDate {
-		return nil
+	out := make([]string, 0, len(dates))
+	seen := map[string]bool{}
+	for _, d := range dates {
+		if !seen[d] && (opts.StartDate == "" || d >= opts.StartDate) && (opts.EndDate == "" || d <= opts.EndDate) && (target.BeginDate == "" || d >= target.BeginDate) && (target.EndDate == "" || d <= target.EndDate) {
+			out = append(out, d)
+			seen[d] = true
+		}
 	}
-	return []string{fallbackToday}
+	sort.Sort(sort.Reverse(sort.StringSlice(out)))
+	if opts.DaysBack > 0 && len(out) > opts.DaysBack {
+		out = out[:opts.DaysBack]
+	}
+	return out, nil
 }
 
-func loadTradingCalendarDates(path, startDate, endDate string) []string {
+func loadTradingCalendarDates(path, start, end string) ([]string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	type calEntry struct {
+	var entries []struct {
 		Date         string `json:"date"`
 		IsTradingDay bool   `json:"is_trading_day"`
 	}
-	var entries []calEntry
-	if err := json.Unmarshal(raw, &entries); err != nil {
-		return nil
+	if err = json.Unmarshal(raw, &entries); err != nil {
+		return nil, err
 	}
-	var dates []string
+	dates := []string{}
+	seen := map[string]bool{}
 	for _, e := range entries {
 		d := strings.TrimSpace(e.Date)
-		if len(d) != 8 || !e.IsTradingDay {
-			continue
+		if _, err = parseTSETMCDate(d); err != nil {
+			return nil, err
 		}
-		if startDate != "" && d < startDate {
-			continue
+		if e.IsTradingDay && !seen[d] && (start == "" || d >= start) && (end == "" || d <= end) {
+			dates = append(dates, d)
+			seen[d] = true
 		}
-		if endDate != "" && d > endDate {
-			continue
-		}
-		dates = append(dates, d)
 	}
-	sort.Slice(dates, func(i, j int) bool {
-		return dates[i] > dates[j] // descending: newest first (E2-4)
-	})
-	return dates
+	sort.Sort(sort.Reverse(sort.StringSlice(dates)))
+	return dates, nil
+}
+
+func validateCrawlOptions(opts crawlerdto.ProductionCrawlOptions) error {
+	if opts.DaysBack < 0 || opts.Workers < 0 || opts.MaxTasks < 0 {
+		return errors.New("crawl limits cannot be negative")
+	}
+	if opts.InsCode != "" {
+		if err := validateInsCode(opts.InsCode); err != nil {
+			return err
+		}
+	}
+	for _, d := range append(append([]string{}, opts.Dates...), opts.StartDate, opts.EndDate) {
+		if d != "" {
+			if _, err := parseTSETMCDate(d); err != nil {
+				return err
+			}
+		}
+	}
+	if opts.StartDate != "" && opts.EndDate != "" && opts.StartDate > opts.EndDate {
+		return errors.New("start date exceeds end date")
+	}
+	return nil
+}
+
+func taskReusable(dir, code, date string, offline bool) bool {
+	if !isTaskCompletedOnDisk(dir, code, date) {
+		return false
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "manifests", "ticks", code+"_"+date+"_manifest.json"))
+	if err != nil {
+		return false
+	}
+	var m crawlerdto.TickManifest
+	return json.Unmarshal(raw, &m) == nil && m.Version == 2 && m.Offline == offline
 }
 
 func filterProductionTargets(items []productionTarget, insFilter string) []productionTarget {
@@ -589,7 +679,10 @@ func isTaskCompletedOnDisk(dataDir, insCode, dateStr string) bool {
 	if err := json.Unmarshal(manifestBytes, &m); err != nil {
 		return false
 	}
-	if (m.Status != "ok" && m.Status != "empty") || m.SHA256 == "" {
+	if m.InsCode != insCode || m.Date != dateStr {
+		return false
+	}
+	if m.InsCode != insCode || m.Date != dateStr || m.RecordsCount < 0 || (m.Status != "ok" && m.Status != "empty") || m.SHA256 == "" {
 		return false
 	}
 

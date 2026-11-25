@@ -46,6 +46,9 @@ func TestPostgresAutoMigrateSeedAndRepositories(t *testing.T) {
 		t.Fatalf("auto-migrate schema: %v", err)
 	}
 
+	if err := infrapostgres.MigrateInstrumentIdentity(pgDB.GetDB()); err != nil {
+		t.Fatal(err)
+	}
 	uaRepo := infrapostgres.NewUnderlyingRepository()
 	seeder := seed.NewUnderlyingSeeder(uaRepo, pgDB)
 
@@ -96,6 +99,41 @@ func TestPostgresAutoMigrateSeedAndRepositories(t *testing.T) {
 		t.Fatal("expected at least 1 saved option contract")
 	}
 
+	// Bulk status transitions must update existing rows and preserve false,
+	// even though the entity has a database/default GORM value of true.
+	opt.IsActive = false
+	opt.Status = "EXPIRED"
+	if _, err := optRepo.SaveBulk(pgDB, []*entity.OptionContract{opt}); err != nil {
+		t.Fatal(err)
+	}
+	expired, err := optRepo.GetBySymbol(pgDB, opt.SymbolFA)
+	if err != nil || expired == nil || expired.IsActive || expired.Status != "EXPIRED" {
+		t.Fatalf("bulk expiry transition failed: %+v %v", expired, err)
+	}
+	if err = optRepo.Save(pgDB, opt); err != nil {
+		t.Fatal(err)
+	}
+	expired, err = optRepo.GetBySymbol(pgDB, opt.SymbolFA)
+	if err != nil || expired == nil || expired.IsActive {
+		t.Fatalf("single save changed false active flag: %+v %v", expired, err)
+	}
+	// Reused symbols remain separate identities across historical expiries.
+	oldCode, newCode := "991000000000001", "991000000000002"
+	oldContract := &entity.OptionContract{UnderlyingAssetID: ahram.ID, SymbolFA: "reused_history_test", NameFA: "old", ContractType: "CALL", StrikePrice: 100, ContractSize: 1000, ExpirationDate: time.Date(2024, 12, 1, 0, 0, 0, 0, time.UTC), TSETMCID: &oldCode, IsActive: false, Status: "EXPIRED"}
+	newContract := &entity.OptionContract{UnderlyingAssetID: ahram.ID, SymbolFA: "reused_history_test", NameFA: "new", ContractType: "CALL", StrikePrice: 200, ContractSize: 1000, ExpirationDate: time.Date(2027, 12, 1, 0, 0, 0, 0, time.UTC), TSETMCID: &newCode, IsActive: true, Status: "ACTIVE"}
+	for i := 0; i < 2; i++ {
+		if _, err := optRepo.SaveBulk(pgDB, []*entity.OptionContract{oldContract, newContract}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var reused int64
+	if err := pgDB.GetDB().Model(&entity.OptionContract{}).Where("symbol_fa = ?", "reused_history_test").Count(&reused).Error; err != nil || reused != 2 {
+		t.Fatalf("reused symbol identities: count=%d err=%v", reused, err)
+	}
+	latest, err := optRepo.GetBySymbol(pgDB, "reused_history_test")
+	if err != nil || latest == nil || latest.TSETMCID == nil || *latest.TSETMCID != newCode {
+		t.Fatalf("symbol query must prefer active identity: %+v %v", latest, err)
+	}
 	dailyRepo := infrapostgres.NewDailyHistoryRepository()
 	yPrice := 70744.0
 	dailyRecords := []*entity.DailyHistory{

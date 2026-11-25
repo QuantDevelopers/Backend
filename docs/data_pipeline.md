@@ -53,8 +53,8 @@ preserved. Failed conversion rolls back all DDL and copies.
 
 Original tables are retained as `ticks_raw_unpartitioned` and
 `ticks_clean_unpartitioned` backups; conversion therefore needs additional disk
-space. Their sequences supply IDs for the new partitioned parents. Do not delete
-these backups without transferring sequence ownership/defaults first. Backups
+space. Their sequences supply IDs for the new partitioned parents; sequence ownership
+is transferred to the new parents during conversion. Backups
 are snapshots at conversion time and do not receive subsequent writes. Existing
 custom grants, triggers, views, foreign keys and custom indexes are outside this
 migration: inspect dependencies before applying it to a customized deployment.

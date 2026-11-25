@@ -139,6 +139,11 @@ func (s *MarketDataService) GetDailyHistory(
 		toPtr = &parsed
 	}
 
+	if fromPtr != nil && toPtr != nil && fromPtr.After(*toPtr) {
+		var vErr exception.ValidationErrors
+		vErr.Add("date", s.constants.Tag.Invalid)
+		return marketdatadto.DailyHistoryResponse{}, vErr
+	}
 	limit := req.Limit
 	if limit <= 0 {
 		limit = 100
@@ -203,6 +208,11 @@ func (s *MarketDataService) GetTicks(
 	}
 	if pageSize > 500 {
 		pageSize = 500
+	}
+	if page-1 > int(^uint(0)>>1)/pageSize {
+		var vErr exception.ValidationErrors
+		vErr.Add("page", s.constants.Tag.Invalid)
+		return marketdatadto.TicksPaginatedResponse{}, vErr
 	}
 	offset := (page - 1) * pageSize
 

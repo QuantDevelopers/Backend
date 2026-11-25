@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"net/http"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,7 +121,7 @@ func (s *DiscoveryServiceTestSuite) TestParseNormalizesArabicAndCalculatesPriceC
 	s.Equal("اختیارخ اهرم-5000", contracts[0].Name)
 }
 
-func (s *DiscoveryServiceTestSuite) TestLiveFallbackAndPersistDB() {
+func (s *DiscoveryServiceTestSuite) TestOfflinePersistDB() {
 	miniWatch := `{
 		"instrumentOptMarketWatch": [
 			{
@@ -143,9 +143,6 @@ func (s *DiscoveryServiceTestSuite) TestLiveFallbackAndPersistDB() {
 	tmpFixture := filepath.Join(s.T().TempDir(), "watch.json")
 	s.Require().NoError(os.WriteFile(tmpFixture, []byte(miniWatch), 0o644))
 
-	s.client.On("Get", mock.Anything, TSETMCOptionWatchURL).
-		Return([]byte(nil), http.StatusServiceUnavailable, errors.New("upstream down")).Once()
-
 	existingUA := &entity.UnderlyingAsset{
 		Model:    database.Model{ID: 7},
 		SymbolFA: "اهرم",
@@ -157,7 +154,7 @@ func (s *DiscoveryServiceTestSuite) TestLiveFallbackAndPersistDB() {
 	})).Return(1, nil).Once()
 
 	res, err := s.service.Discover(context.Background(), crawlerdto.DiscoveryOptions{
-		UseOfflineFixture: false,
+		UseOfflineFixture: true,
 		FixturePath:       tmpFixture,
 		RegistryDir:       s.T().TempDir(),
 		PersistDB:         true,
@@ -245,4 +242,51 @@ func (s *DiscoveryServiceTestSuite) TestDiscoverFullRegistryE15() {
 
 func TestDiscoveryServiceSuite(t *testing.T) {
 	suite.Run(t, new(DiscoveryServiceTestSuite))
+}
+
+func (s *DiscoveryServiceTestSuite) TestMissingWatchDoesNotExpireFutureContracts() {
+	path := filepath.Join(s.T().TempDir(), "watch.json")
+	s.Require().NoError(os.WriteFile(path, []byte(`{"instrumentOptMarketWatch":[]}`), 0o644))
+	code, base := "123", "456"
+	s.optionRepo.On("GetAll", s.db, domainrepo.OptionFilter{}).Return([]*entity.OptionContract{{TSETMCID: &code, SymbolFA: "future", ContractType: "CALL", ExpirationDate: time.Now().AddDate(0, 1, 0), UnderlyingAsset: &entity.UnderlyingAsset{TSETMCID: &base, SymbolFA: "base"}}}, nil)
+	res, err := s.service.DiscoverFullRegistry(context.Background(), crawlerdto.FullRegistryOptions{UseOfflineFixture: true, FixturePath: path, RegistryDir: s.T().TempDir(), IncludeExpired: true})
+	s.Require().NoError(err)
+	s.Equal(1, res.Summary.ActiveOptionsCount)
+	s.Zero(res.Summary.ExpiredOptionsCount)
+	s.Equal(1, res.Summary.UnderlyingsCount)
+}
+
+func (s *DiscoveryServiceTestSuite) TestExpiryDayStillActiveAndExpiredFlagHonored() {
+	raw := fmt.Sprintf(`{"instrumentOptMarketWatch":[{"uaInsCode":"123","lval30_UA":"base","endDate":"%s","remainedDay":0,"insCode_C":"456","lVal18AFC_C":"call"}]}`, marketToday())
+	path := filepath.Join(s.T().TempDir(), "watch.json")
+	s.Require().NoError(os.WriteFile(path, []byte(raw), 0o644))
+	res, err := s.service.DiscoverFullRegistry(context.Background(), crawlerdto.FullRegistryOptions{UseOfflineFixture: true, FixturePath: path, RegistryDir: s.T().TempDir()})
+	s.Require().NoError(err)
+	s.Equal(1, res.Summary.ActiveOptionsCount)
+	raw = strings.ReplaceAll(raw, marketToday(), "20200101")
+	s.Require().NoError(os.WriteFile(path, []byte(raw), 0o644))
+	res, err = s.service.DiscoverFullRegistry(context.Background(), crawlerdto.FullRegistryOptions{UseOfflineFixture: true, FixturePath: path, RegistryDir: s.T().TempDir(), IncludeExpired: false})
+	s.Require().NoError(err)
+	s.Empty(res.ExpiredContracts)
+	s.Empty(res.ActiveContracts)
+}
+
+func (s *DiscoveryServiceTestSuite) TestHistoricalDiscoveryPersistsPreviouslyUnknownExpiredContract() {
+	dir := s.T().TempDir()
+	historyFixture(s.T(), dir, "watch.json", `{"instrumentOptMarketWatch":[]}`)
+	historyFixture(s.T(), dir, "20241026.json", `{"closingPriceDailyHistoryWithInstDetails":[{"insCode":"111","lVal18AFC":"قدیمی","lVal30":"سهم قدیمی","cIsin":"IRO1001"},{"insCode":"222","lVal18AFC":"ضقدیم1","lVal30":"اختیارخ قدیمی-1000-2024/10/30","cIsin":"IRO9001"}]}`)
+	s.optionRepo.On("GetAll", s.db, domainrepo.OptionFilter{}).Return([]*entity.OptionContract{}, nil).Once()
+	s.underlyingRepo.On("GetBySymbol", s.db, "قدیمی").Return((*entity.UnderlyingAsset)(nil), nil).Once()
+	s.underlyingRepo.On("Upsert", s.db, mock.Anything).Run(func(a mock.Arguments) { a.Get(1).(*entity.UnderlyingAsset).ID = 77 }).Return(nil).Once()
+	baseCode := "111"
+	s.underlyingRepo.On("GetByTSETMCID", s.db, "111").Return(&entity.UnderlyingAsset{Model: database.Model{ID: 77}, TSETMCID: &baseCode, SymbolFA: "قدیمی"}, nil).Once()
+	s.optionRepo.On("SaveBulk", s.db, mock.MatchedBy(func(rows []*entity.OptionContract) bool {
+		return len(rows) == 1 && rows[0].UnderlyingAssetID == 77 && rows[0].TSETMCID != nil && *rows[0].TSETMCID == "222" && rows[0].ISIN != nil && *rows[0].ISIN == "IRO9001" && !rows[0].IsActive && rows[0].Status == "EXPIRED"
+	})).Return(1, nil).Once()
+	res, err := s.service.DiscoverFullRegistry(context.Background(), crawlerdto.FullRegistryOptions{UseOfflineFixture: true, FixturePath: filepath.Join(dir, "watch.json"), RegistryDir: s.T().TempDir(), HistoryFixtureDir: dir, HistoryDates: []string{"20241026"}, IncludeExpired: true, PersistDB: true})
+	s.Require().NoError(err)
+	s.Equal(1, res.PersistedDBRows)
+	s.Len(res.ExpiredContracts, 1)
+	s.underlyingRepo.AssertExpectations(s.T())
+	s.optionRepo.AssertExpectations(s.T())
 }
