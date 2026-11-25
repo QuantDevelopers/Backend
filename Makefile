@@ -42,6 +42,7 @@ build:
 	go build -o bin/quant-server ./cmd/app
 	go build -o bin/quant-benchmark ./cmd/benchmark
 	go build -o bin/quant-crawler ./cmd/crawler
+	go build -o bin/quant-data ./cmd/data
 
 log:
 	git log --oneline -n 10
