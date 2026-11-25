@@ -174,7 +174,10 @@ func (repo *OptionContractRepository) SaveBulk(db database.Database, contracts [
 	}
 	updates := clause.AssignmentColumns([]string{"symbol_fa", "underlying_asset_id", "name_fa", "contract_type", "strike_price", "contract_size", "expiration_date", "begin_date", "tsetmc_id", "is_active", "status", "updated_at"})
 	updates = append(updates, clause.Assignment{Column: clause.Column{Name: "isin"}, Value: gorm.Expr("COALESCE(EXCLUDED.isin, option_contracts.isin)")})
-	res := db.GetDB().Model(&entity.OptionContract{}).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "tsetmc_id"}}, DoUpdates: updates}).CreateInBatches(rows, 500)
+	// Map batches already contain explicit columns/defaults. Using Model adds
+	// RETURNING id, which GORM v1.25 cannot scan into CreateInBatches' []map
+	// destination. We only need the driver's affected-row count here.
+	res := db.GetDB().Table("option_contracts").Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "tsetmc_id"}}, DoUpdates: updates}).CreateInBatches(rows, 500)
 	if res.Error != nil {
 		return 0, res.Error
 	}
