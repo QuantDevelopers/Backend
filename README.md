@@ -129,6 +129,12 @@ go run ./cmd/crawler -mode=tick-sample -offline -ins-code=42511156565416187 -dat
 
 # اجرای خزنده تولیدی هم‌زمان با صف، Worker Pool، Rate Limiter مشترک و Resume از روی Manifest (E2-3):
 go run ./cmd/crawler -mode=production -workers=3 -days-back=5 -resume=true -persist-db
+
+# کشف کامل رجیستری ابزارها شامل دارایی پایه، آپشن‌های فعال و منقضی‌شده با آمارهای تجمیعی (E1-5):
+go run ./cmd/crawler -mode=full-discovery -offline -persist-db
+
+# خزش کامل تاریخی ریزمعاملات جدید به قدیم با استفاده از تقویم معاملاتی (E2-4):
+go run ./cmd/crawler -mode=full-crawl -calendar=data/trading_calendar.json -order-desc=true -workers=4 -resume=true -persist-db
 ```
 
 ---

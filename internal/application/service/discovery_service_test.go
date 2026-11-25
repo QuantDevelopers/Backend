@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/QuantDevelopers/Backend/bootstrap"
 	crawlerdto "github.com/QuantDevelopers/Backend/internal/application/dto/crawler"
 	"github.com/QuantDevelopers/Backend/internal/domain/entity"
+	domainrepo "github.com/QuantDevelopers/Backend/internal/domain/repository/postgres"
 	"github.com/QuantDevelopers/Backend/internal/infrastructure/database"
 	infralogger "github.com/QuantDevelopers/Backend/internal/infrastructure/logger"
 	dbMocks "github.com/QuantDevelopers/Backend/mocks/infrastructure/database"
@@ -165,6 +167,80 @@ func (s *DiscoveryServiceTestSuite) TestLiveFallbackAndPersistDB() {
 	s.client.AssertExpectations(s.T())
 	s.underlyingRepo.AssertExpectations(s.T())
 	s.optionRepo.AssertExpectations(s.T())
+}
+
+func (s *DiscoveryServiceTestSuite) TestDiscoverFullRegistryE15() {
+	fixturePath := filepath.Join("..", "..", "..", "tests", "fixtures", "sample_option_watch.json")
+	registryDir := s.T().TempDir()
+	expiredIns := "99988877766655544"
+
+	s.optionRepo.On("GetAll", s.db, domainrepo.OptionFilter{}).Return([]*entity.OptionContract{
+		{
+			Model:          database.Model{ID: 99},
+			SymbolFA:       "ضفول9999",
+			NameFA:         "اختیارخ فولاد منقضی",
+			ContractType:   "CALL",
+			StrikePrice:    4000,
+			ContractSize:   1000,
+			ExpirationDate: time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+			TSETMCID:       &expiredIns,
+			IsActive:       false,
+			Status:         "EXPIRED",
+			UnderlyingAsset: &entity.UnderlyingAsset{
+				SymbolFA: "فولاد",
+			},
+		},
+	}, nil).Once()
+
+	res, err := s.service.DiscoverFullRegistry(context.Background(), crawlerdto.FullRegistryOptions{
+		UseOfflineFixture: true,
+		FixturePath:       fixturePath,
+		RegistryDir:       registryDir,
+		IncludeExpired:    true,
+	})
+	s.Require().NoError(err)
+	s.Equal(27, res.Summary.UnderlyingsCount)
+	s.Equal(1634+1, res.Summary.ActiveOptionsCount+res.Summary.ExpiredOptionsCount)
+	s.Equal(27+1634+1, res.Summary.TotalInstruments)
+	s.Greater(res.Summary.CallCount, 0)
+	s.Greater(res.Summary.PutCount, 0)
+	s.Greater(res.Summary.ExpiriesCount, 0)
+
+	s.FileExists(res.InstrumentsPath)
+	s.FileExists(res.UnderlyingsPath)
+	s.FileExists(res.ActivePath)
+	s.FileExists(res.ExpiredPath)
+	s.FileExists(res.SummaryPath)
+
+	rawSaved, err := os.ReadFile(res.InstrumentsPath)
+	s.Require().NoError(err)
+	var decoded []crawlerdto.RegistryInstrument
+	s.Require().NoError(json.Unmarshal(rawSaved, &decoded))
+	s.Len(decoded, 27+1634+1)
+
+	// Validate sorting and asset classes
+	hasETF := false
+	hasStock := false
+	hasCall := false
+	hasPut := false
+	for _, inst := range decoded {
+		s.NotEmpty(inst.InsCode)
+		s.NotEmpty(inst.Symbol)
+		switch inst.AssetClass {
+		case "ETF":
+			hasETF = true
+		case "STOCK":
+			hasStock = true
+		case "OPTION_CALL":
+			hasCall = true
+		case "OPTION_PUT":
+			hasPut = true
+		}
+	}
+	s.True(hasETF, "should contain ETF instruments like اهرم")
+	s.True(hasStock, "should contain STOCK instruments")
+	s.True(hasCall, "should contain Call option instruments")
+	s.True(hasPut, "should contain Put option instruments")
 }
 
 func TestDiscoveryServiceSuite(t *testing.T) {

@@ -724,6 +724,9 @@ const docTemplate = `{
                 "db_rows_saved": {
                     "type": "integer"
                 },
+                "duration": {
+                    "type": "string"
+                },
                 "empty_days": {
                     "type": "integer"
                 },
@@ -742,6 +745,16 @@ const docTemplate = `{
                 "job_id": {
                     "type": "string"
                 },
+                "newest_date": {
+                    "type": "string"
+                },
+                "oldest_date": {
+                    "type": "string"
+                },
+                "order": {
+                    "description": "\"desc\" (newest to oldest) or \"asc\"",
+                    "type": "string"
+                },
                 "skipped_resume": {
                     "type": "integer"
                 },
@@ -750,6 +763,12 @@ const docTemplate = `{
                 },
                 "succeeded": {
                     "type": "integer"
+                },
+                "throughput_rps": {
+                    "type": "number"
+                },
+                "throughput_ticks_per_sec": {
+                    "type": "number"
                 },
                 "total_queued": {
                     "type": "integer"

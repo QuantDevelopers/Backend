@@ -12,12 +12,17 @@ type TickCrawlTask struct {
 	ContractSize   int    `json:"contract_size"`
 }
 
-// ProductionCrawlOptions configures E2-3 concurrent queue, worker pool, resume, and DB persistence.
+// ProductionCrawlOptions configures E2-3/E2-4 concurrent queue, worker pool, resume, and DB persistence.
 type ProductionCrawlOptions struct {
 	Workers            int
 	DataDir            string
 	Dates              []string
 	DaysBack           int
+	OrderDesc          bool   // E2-4: Crawl from newest to oldest dates
+	StartDate          string // YYYYMMDD lower bound
+	EndDate            string // YYYYMMDD upper bound
+	CalendarPath       string // path to trading calendar JSON
+	FullHistory        bool   // crawl all available history without capping
 	IncludeUnderlyings bool
 	IncludeOptions     bool
 	InsCode            string
@@ -30,21 +35,27 @@ type ProductionCrawlOptions struct {
 	DisableFallback    bool
 }
 
-// ProductionCrawlReport summarizes an E2-3 production crawl batch run.
+// ProductionCrawlReport summarizes an E2-3/E2-4 production crawl batch run.
 type ProductionCrawlReport struct {
-	JobID         string    `json:"job_id"`
-	StartedAt     time.Time `json:"started_at"`
-	FinishedAt    time.Time `json:"finished_at"`
-	Workers       int       `json:"workers"`
-	TotalQueued   int       `json:"total_queued"`
-	SkippedResume int       `json:"skipped_resume"`
-	Succeeded     int       `json:"succeeded"`
-	EmptyDays     int       `json:"empty_days"`
-	Failed        int       `json:"failed"`
-	TotalRecords  int       `json:"total_records"`
-	DBRowsSaved   int       `json:"db_rows_saved"`
-	CircuitBroken bool      `json:"circuit_broken"`
-	Errors        []string  `json:"errors,omitempty"`
+	JobID           string    `json:"job_id"`
+	StartedAt       time.Time `json:"started_at"`
+	FinishedAt      time.Time `json:"finished_at"`
+	Duration        string    `json:"duration,omitempty"`
+	Order           string    `json:"order,omitempty"` // "desc" (newest to oldest) or "asc"
+	NewestDate      string    `json:"newest_date,omitempty"`
+	OldestDate      string    `json:"oldest_date,omitempty"`
+	Workers         int       `json:"workers"`
+	TotalQueued     int       `json:"total_queued"`
+	SkippedResume   int       `json:"skipped_resume"`
+	Succeeded       int       `json:"succeeded"`
+	EmptyDays       int       `json:"empty_days"`
+	Failed          int       `json:"failed"`
+	TotalRecords    int       `json:"total_records"`
+	DBRowsSaved     int       `json:"db_rows_saved"`
+	ThroughputRPS   float64   `json:"throughput_rps,omitempty"`
+	ThroughputTicks float64   `json:"throughput_ticks_per_sec,omitempty"`
+	CircuitBroken   bool      `json:"circuit_broken"`
+	Errors          []string  `json:"errors,omitempty"`
 }
 
 // DBCoverageSummary captures row counts across core database tables for status monitoring.

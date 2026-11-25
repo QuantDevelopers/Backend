@@ -216,6 +216,58 @@ func (s *ProductionCrawlerServiceTestSuite) TestLiveWorkerPoolAgainstMockHTTPSer
 	s.Equal(int32(5), hits.Load())
 }
 
+func (s *ProductionCrawlerServiceTestSuite) TestFullTickCrawlNewestToOldestOrderingAndCalendarE24() {
+	uaID := "17914401175772326"
+	s.underlyingRepo.On("GetAll", s.db).Return([]*entity.UnderlyingAsset{
+		{Model: database.Model{ID: 1}, SymbolFA: "اهرم", TSETMCID: &uaID, IsActive: true},
+	}, nil)
+
+	fixturePath := filepath.Join("..", "..", "..", "tests", "fixtures", "sample_trade_history.json")
+	calendarPath := filepath.Join("..", "..", "..", "data", "trading_calendar.json")
+	dataDir := s.T().TempDir()
+
+	// Build queue with calendar and date bounds (E2-4)
+	tasks, skipped, err := s.service.BuildQueue(crawlerdto.ProductionCrawlOptions{
+		DataDir:            dataDir,
+		CalendarPath:       calendarPath,
+		StartDate:          "20261025",
+		EndDate:            "20261028",
+		OrderDesc:          true,
+		IncludeUnderlyings: true,
+		IncludeOptions:     false,
+	})
+	s.Require().NoError(err)
+	s.Equal(0, skipped)
+	s.Require().Len(tasks, 4)
+
+	// Verify tasks are ordered strictly from newest to oldest dates
+	s.Equal("20261028", tasks[0].DateStr)
+	s.Equal("20261027", tasks[1].DateStr)
+	s.Equal("20261026", tasks[2].DateStr)
+	s.Equal("20261025", tasks[3].DateStr)
+
+	// Run execution with offline fixture
+	report, err := s.service.Run(context.Background(), crawlerdto.ProductionCrawlOptions{
+		Workers:            2,
+		DataDir:            dataDir,
+		CalendarPath:       calendarPath,
+		StartDate:          "20261025",
+		EndDate:            "20261028",
+		OrderDesc:          true,
+		IncludeUnderlyings: true,
+		IncludeOptions:     false,
+		UseOfflineFixture:  true,
+		FixturePath:        fixturePath,
+	})
+	s.Require().NoError(err)
+	s.Equal("desc", report.Order)
+	s.Equal("20261028", report.NewestDate)
+	s.Equal("20261025", report.OldestDate)
+	s.Equal(4, report.TotalQueued)
+	s.Equal(4, report.Succeeded)
+	s.NotEmpty(report.Duration)
+}
+
 func TestProductionCrawlerServiceSuite(t *testing.T) {
 	suite.Run(t, new(ProductionCrawlerServiceTestSuite))
 }

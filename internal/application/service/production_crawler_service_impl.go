@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -79,16 +81,26 @@ func (s *ProductionCrawlerService) BuildQueue(
 		return nil, 0, err
 	}
 
-	explicitDates := normalizeDateList(opts.Dates)
-	todayStr := time.Now().UTC().Format("20060102")
+	rawExplicit := normalizeDateList(opts.Dates)
+	var explicitDates []string
+	for _, d := range rawExplicit {
+		if opts.StartDate != "" && d < opts.StartDate {
+			continue
+		}
+		if opts.EndDate != "" && d > opts.EndDate {
+			continue
+		}
+		explicitDates = append(explicitDates, d)
+	}
 
+	todayStr := time.Now().UTC().Format("20060102")
 	var tasks []crawlerdto.TickCrawlTask
 	skippedResume := 0
 
 	for _, target := range candidates {
 		dates := explicitDates
 		if len(dates) == 0 {
-			dates = s.resolveTargetDates(target, opts.DaysBack, todayStr)
+			dates = s.resolveTargetDates(target, opts, todayStr)
 		}
 
 		for _, dateStr := range dates {
@@ -109,10 +121,29 @@ func (s *ProductionCrawlerService) BuildQueue(
 				DateStr:        dateStr,
 				ContractSize:   contractSize,
 			})
-			if opts.MaxTasks > 0 && len(tasks) >= opts.MaxTasks {
-				return tasks, skippedResume, nil
-			}
 		}
+	}
+
+	// Sort tasks deterministically (E2-4 default: newest to oldest dates)
+	sortDesc := opts.OrderDesc
+	if !opts.OrderDesc && len(opts.Dates) == 0 {
+		sortDesc = true
+	}
+	sort.Slice(tasks, func(i, j int) bool {
+		if tasks[i].DateStr != tasks[j].DateStr {
+			if sortDesc {
+				return tasks[i].DateStr > tasks[j].DateStr
+			}
+			return tasks[i].DateStr < tasks[j].DateStr
+		}
+		if tasks[i].SymbolFA != tasks[j].SymbolFA {
+			return tasks[i].SymbolFA < tasks[j].SymbolFA
+		}
+		return tasks[i].InsCode < tasks[j].InsCode
+	})
+
+	if opts.MaxTasks > 0 && len(tasks) > opts.MaxTasks {
+		tasks = tasks[:opts.MaxTasks]
 	}
 
 	return tasks, skippedResume, nil
@@ -148,9 +179,27 @@ func (s *ProductionCrawlerService) Run(
 		workers = 0
 	}
 
+	newestDate := ""
+	oldestDate := ""
+	for _, t := range tasks {
+		if newestDate == "" || t.DateStr > newestDate {
+			newestDate = t.DateStr
+		}
+		if oldestDate == "" || t.DateStr < oldestDate {
+			oldestDate = t.DateStr
+		}
+	}
+	orderLabel := "desc"
+	if !opts.OrderDesc && len(opts.Dates) > 0 {
+		orderLabel = "asc"
+	}
+
 	report := &crawlerdto.ProductionCrawlReport{
 		JobID:         fmt.Sprintf("crawl-%d", startedAt.Unix()),
 		StartedAt:     startedAt,
+		Order:         orderLabel,
+		NewestDate:    newestDate,
+		OldestDate:    oldestDate,
 		Workers:       workers,
 		TotalQueued:   len(tasks),
 		SkippedResume: skippedResume,
@@ -250,6 +299,12 @@ func (s *ProductionCrawlerService) Run(
 	}
 
 	report.FinishedAt = time.Now().UTC()
+	duration := report.FinishedAt.Sub(startedAt)
+	report.Duration = duration.Round(time.Millisecond).String()
+	if duration.Seconds() > 0 {
+		report.ThroughputRPS = math.Round(float64(report.Succeeded+report.Failed)/duration.Seconds()*100) / 100
+		report.ThroughputTicks = math.Round(float64(report.TotalRecords)/duration.Seconds()*100) / 100
+	}
 	_ = writeStatusReport(dataDir, report)
 	return report, nil
 }
@@ -406,22 +461,88 @@ func (s *ProductionCrawlerService) resolveProductionTargets(opts crawlerdto.Prod
 	return filterProductionTargets(out, insFilter), nil
 }
 
-func (s *ProductionCrawlerService) resolveTargetDates(target productionTarget, daysBack int, fallbackToday string) []string {
+func (s *ProductionCrawlerService) resolveTargetDates(
+	target productionTarget,
+	opts crawlerdto.ProductionCrawlOptions,
+	fallbackToday string,
+) []string {
+	// 1. Check trading calendar JSON file (E1-7 / E2-4)
+	calPath := opts.CalendarPath
+	if calPath == "" {
+		calPath = "data/trading_calendar.json"
+	}
+	if calDates := loadTradingCalendarDates(calPath, opts.StartDate, opts.EndDate); len(calDates) > 0 {
+		if !opts.FullHistory && opts.DaysBack > 0 && len(calDates) > opts.DaysBack {
+			calDates = calDates[:opts.DaysBack]
+		}
+		return calDates
+	}
+
+	// 2. Check daily_history in PostgreSQL
 	if s.db != nil && s.dailyRepo != nil {
 		dates, err := s.dailyRepo.GetTradingDates(s.db, target.InstrumentType, target.InstrumentID, true)
 		if err == nil && len(dates) > 0 {
-			limit := len(dates)
-			if daysBack > 0 && daysBack < limit {
-				limit = daysBack
+			var filtered []string
+			for _, d := range dates {
+				dStr := d.Format("20060102")
+				if opts.StartDate != "" && dStr < opts.StartDate {
+					continue
+				}
+				if opts.EndDate != "" && dStr > opts.EndDate {
+					continue
+				}
+				filtered = append(filtered, dStr)
 			}
-			out := make([]string, 0, limit)
-			for i := 0; i < limit; i++ {
-				out = append(out, dates[i].Format("20060102"))
+			if len(filtered) > 0 {
+				if !opts.FullHistory && opts.DaysBack > 0 && len(filtered) > opts.DaysBack {
+					filtered = filtered[:opts.DaysBack]
+				}
+				return filtered
 			}
-			return out
 		}
 	}
+
+	// 3. Fallback
+	if opts.StartDate != "" && fallbackToday < opts.StartDate {
+		return nil
+	}
+	if opts.EndDate != "" && fallbackToday > opts.EndDate {
+		return nil
+	}
 	return []string{fallbackToday}
+}
+
+func loadTradingCalendarDates(path, startDate, endDate string) []string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	type calEntry struct {
+		Date         string `json:"date"`
+		IsTradingDay bool   `json:"is_trading_day"`
+	}
+	var entries []calEntry
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		return nil
+	}
+	var dates []string
+	for _, e := range entries {
+		d := strings.TrimSpace(e.Date)
+		if len(d) != 8 || !e.IsTradingDay {
+			continue
+		}
+		if startDate != "" && d < startDate {
+			continue
+		}
+		if endDate != "" && d > endDate {
+			continue
+		}
+		dates = append(dates, d)
+	}
+	sort.Slice(dates, func(i, j int) bool {
+		return dates[i] > dates[j] // descending: newest first (E2-4)
+	})
+	return dates
 }
 
 func filterProductionTargets(items []productionTarget, insFilter string) []productionTarget {

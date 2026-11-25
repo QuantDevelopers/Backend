@@ -99,6 +99,70 @@ type DiscoveryResult struct {
 	PersistedDBRows int
 }
 
+// RegistryInstrument represents an entry in the E1-5 full instrument registry.
+type RegistryInstrument struct {
+	InsCode          string  `json:"insCode"`
+	Symbol           string  `json:"symbol"`
+	Name             string  `json:"name"`
+	AssetClass       string  `json:"asset_class"` // "STOCK", "ETF", "OPTION_CALL", "OPTION_PUT"
+	Market           string  `json:"market"`      // "Bourse", "Farabourse"
+	UnderlyingSymbol string  `json:"underlying_symbol,omitempty"`
+	UaInsCode        string  `json:"ua_ins_code,omitempty"`
+	StrikePrice      float64 `json:"strike_price,omitempty"`
+	ContractSize     int     `json:"contract_size,omitempty"`
+	BeginDate        string  `json:"begin_date,omitempty"`
+	ExpiryDate       string  `json:"expiry_date,omitempty"`
+	RemainedDays     int     `json:"remained_days,omitempty"`
+	Status           string  `json:"status"` // "ACTIVE", "EXPIRED", "DELISTED"
+	IsActive         bool    `json:"is_active"`
+	LastPrice        float64 `json:"last_price,omitempty"`
+	ClosePrice       float64 `json:"close_price,omitempty"`
+	OpenPositions    int     `json:"open_positions,omitempty"`
+	TradeCount       int     `json:"trade_count,omitempty"`
+	TradeVolume      int64   `json:"trade_volume,omitempty"`
+	TradeValue       float64 `json:"trade_value,omitempty"`
+	DiscoveredBy     string  `json:"discovered_by"`
+	DiscoveredAt     string  `json:"discovered_at"`
+}
+
+// FullRegistrySummary provides statistical overview of discovered instruments.
+type FullRegistrySummary struct {
+	GeneratedAt         time.Time      `json:"generated_at"`
+	TotalInstruments    int            `json:"total_instruments"`
+	UnderlyingsCount    int            `json:"underlyings_count"`
+	ActiveOptionsCount  int            `json:"active_options_count"`
+	ExpiredOptionsCount int            `json:"expired_options_count"`
+	CallCount           int            `json:"call_count"`
+	PutCount            int            `json:"put_count"`
+	ExpiriesCount       int            `json:"expiries_count"`
+	UnderlyingsSummary  map[string]int `json:"underlyings_summary"`
+}
+
+// FullRegistryOptions controls E1-5 full registry discovery execution.
+type FullRegistryOptions struct {
+	UseOfflineFixture bool
+	FixturePath       string
+	RegistryDir       string
+	PersistDB         bool
+	DisableFallback   bool
+	IncludeExpired    bool
+}
+
+// FullRegistryResult captures outputs and file paths for E1-5 full discovery.
+type FullRegistryResult struct {
+	Summary          FullRegistrySummary    `json:"summary"`
+	Instruments      []RegistryInstrument   `json:"instruments"`
+	Underlyings      []DiscoveredUnderlying `json:"underlyings"`
+	ActiveContracts  []DiscoveredContract   `json:"active_contracts"`
+	ExpiredContracts []DiscoveredContract   `json:"expired_contracts"`
+	InstrumentsPath  string                 `json:"instruments_path"`
+	UnderlyingsPath  string                 `json:"underlyings_path"`
+	ActivePath       string                 `json:"active_path"`
+	ExpiredPath      string                 `json:"expired_path"`
+	SummaryPath      string                 `json:"summary_path"`
+	PersistedDBRows  int                    `json:"persisted_db_rows"`
+}
+
 // TradePayload matches TSETMC GetTrade / GetTradeHistory JSON responses.
 type TradePayload struct {
 	TradeHistory []TradeTickRaw `json:"tradeHistory"`

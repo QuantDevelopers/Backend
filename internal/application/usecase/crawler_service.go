@@ -7,10 +7,11 @@ import (
 	"github.com/QuantDevelopers/Backend/internal/domain/entity"
 )
 
-// DiscoveryService executes E1-3 active option contract and underlying discovery.
+// DiscoveryService executes E1-3 active option contract and E1-5 full instrument registry discovery.
 type DiscoveryService interface {
 	ParseMarketWatch(raw []byte) ([]crawlerdto.DiscoveredUnderlying, []crawlerdto.DiscoveredContract, error)
 	Discover(ctx context.Context, opts crawlerdto.DiscoveryOptions) (*crawlerdto.DiscoveryResult, error)
+	DiscoverFullRegistry(ctx context.Context, opts crawlerdto.FullRegistryOptions) (*crawlerdto.FullRegistryResult, error)
 }
 
 // TickIngestorService executes E2-2 raw-first tick ingestion, manifest writing, and cleaning.
