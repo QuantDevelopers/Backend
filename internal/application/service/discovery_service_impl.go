@@ -223,6 +223,251 @@ func (s *DiscoveryService) Discover(ctx context.Context, opts crawlerdto.Discove
 	}, nil
 }
 
+// DiscoverFullRegistry implements E1-5 full instrument registry discovery.
+// It discovers all underlying stocks/ETFs, active options, detects expired contracts,
+// builds unified instrument records, writes complete artifacts to data/registry,
+// and optionally persists both active and expired entities into PostgreSQL.
+func (s *DiscoveryService) DiscoverFullRegistry(
+	ctx context.Context,
+	opts crawlerdto.FullRegistryOptions,
+) (*crawlerdto.FullRegistryResult, error) {
+	fixturePath := opts.FixturePath
+	if fixturePath == "" {
+		fixturePath = defaultDiscoveryFixture
+	}
+	registryDir := opts.RegistryDir
+	if registryDir == "" {
+		registryDir = defaultRegistryDir
+	}
+
+	rawPayload, err := s.fetchPayload(ctx, opts.UseOfflineFixture, fixturePath, opts.DisableFallback)
+	if err != nil {
+		return nil, err
+	}
+
+	underlyings, allContracts, err := s.ParseMarketWatch(rawPayload)
+	if err != nil {
+		return nil, err
+	}
+
+	todayStr := time.Now().UTC().Format("20060102")
+	activeContracts := make([]crawlerdto.DiscoveredContract, 0, len(allContracts))
+	expiredContracts := make([]crawlerdto.DiscoveredContract, 0, len(allContracts)/4)
+	seenContracts := make(map[string]bool, len(allContracts))
+
+	for _, c := range allContracts {
+		seenContracts[c.InsCode] = true
+		isExpired := c.RemainedDays <= 0 || (c.ExpiryDate != "" && c.ExpiryDate < todayStr)
+		if isExpired {
+			expiredContracts = append(expiredContracts, c)
+		} else {
+			activeContracts = append(activeContracts, c)
+		}
+	}
+
+	// Also inspect database for any known contracts not in active watch or already marked expired
+	if opts.IncludeExpired && s.db != nil && s.optionRepo != nil {
+		dbContracts, err := s.optionRepo.GetAll(s.db, domainrepo.OptionFilter{})
+		if err == nil {
+			for _, dbc := range dbContracts {
+				if dbc.TSETMCID == nil {
+					continue
+				}
+				ins := *dbc.TSETMCID
+				if seenContracts[ins] {
+					continue
+				}
+				seenContracts[ins] = true
+				expStr := dbc.ExpirationDate.Format("20060102")
+				uaSym := ""
+				uaIns := ""
+				if dbc.UnderlyingAsset != nil {
+					uaSym = dbc.UnderlyingAsset.SymbolFA
+					if dbc.UnderlyingAsset.TSETMCID != nil {
+						uaIns = *dbc.UnderlyingAsset.TSETMCID
+					}
+				}
+				begStr := ""
+				if dbc.BeginDate != nil {
+					begStr = dbc.BeginDate.Format("20060102")
+				}
+				side := "Call"
+				if strings.EqualFold(dbc.ContractType, "put") {
+					side = "Put"
+				}
+				expiredContracts = append(expiredContracts, crawlerdto.DiscoveredContract{
+					InsCode:          ins,
+					Symbol:           dbc.SymbolFA,
+					Name:             dbc.NameFA,
+					Side:             side,
+					UaInsCode:        uaIns,
+					UnderlyingSymbol: uaSym,
+					StrikePrice:      dbc.StrikePrice,
+					ContractSize:     dbc.ContractSize,
+					BeginDate:        begStr,
+					ExpiryDate:       expStr,
+					RemainedDays:     0,
+					DiscoveredBy:     "database_historical_registry",
+				})
+			}
+		}
+	}
+
+	// Build unified RegistryInstrument array
+	discoveredAtStr := time.Now().UTC().Format(time.RFC3339)
+	instruments := make([]crawlerdto.RegistryInstrument, 0, len(underlyings)+len(activeContracts)+len(expiredContracts))
+	underlyingsSummary := make(map[string]int, len(underlyings))
+	expiriesSet := make(map[string]struct{})
+	callCount := 0
+	putCount := 0
+
+	for _, u := range underlyings {
+		assetClass := "STOCK"
+		if inferMarketLabel(u.Symbol) == "صندوق" {
+			assetClass = "ETF"
+		}
+		instruments = append(instruments, crawlerdto.RegistryInstrument{
+			InsCode:      u.InsCode,
+			Symbol:       u.Symbol,
+			Name:         u.Name,
+			AssetClass:   assetClass,
+			Market:       mapMarketTypeForDB(u.Market),
+			Status:       "ACTIVE",
+			IsActive:     true,
+			LastPrice:    u.LastPrice,
+			ClosePrice:   u.ClosePrice,
+			DiscoveredBy: u.DiscoveredBy,
+			DiscoveredAt: discoveredAtStr,
+		})
+	}
+
+	appendContractToRegistry := func(c crawlerdto.DiscoveredContract, status string, isActive bool) {
+		assetClass := "OPTION_CALL"
+		if strings.EqualFold(c.Side, "put") {
+			assetClass = "OPTION_PUT"
+			putCount++
+		} else {
+			callCount++
+		}
+		if c.UnderlyingSymbol != "" {
+			underlyingsSummary[c.UnderlyingSymbol]++
+		}
+		if c.ExpiryDate != "" {
+			expiriesSet[c.ExpiryDate] = struct{}{}
+		}
+		instruments = append(instruments, crawlerdto.RegistryInstrument{
+			InsCode:          c.InsCode,
+			Symbol:           c.Symbol,
+			Name:             c.Name,
+			AssetClass:       assetClass,
+			Market:           "Bourse",
+			UnderlyingSymbol: c.UnderlyingSymbol,
+			UaInsCode:        c.UaInsCode,
+			StrikePrice:      c.StrikePrice,
+			ContractSize:     c.ContractSize,
+			BeginDate:        c.BeginDate,
+			ExpiryDate:       c.ExpiryDate,
+			RemainedDays:     c.RemainedDays,
+			Status:           status,
+			IsActive:         isActive,
+			LastPrice:        c.LastPrice,
+			ClosePrice:       c.ClosePrice,
+			OpenPositions:    c.OpenPositions,
+			TradeCount:       c.TradeCount,
+			TradeVolume:      c.TradeVolume,
+			TradeValue:       c.TradeValue,
+			DiscoveredBy:     c.DiscoveredBy,
+			DiscoveredAt:     discoveredAtStr,
+		})
+	}
+
+	for _, c := range activeContracts {
+		appendContractToRegistry(c, "ACTIVE", true)
+	}
+	for _, c := range expiredContracts {
+		appendContractToRegistry(c, "EXPIRED", false)
+	}
+
+	sort.Slice(instruments, func(i, j int) bool {
+		if instruments[i].Symbol == instruments[j].Symbol {
+			return instruments[i].InsCode < instruments[j].InsCode
+		}
+		return instruments[i].Symbol < instruments[j].Symbol
+	})
+
+	summary := crawlerdto.FullRegistrySummary{
+		GeneratedAt:         time.Now().UTC(),
+		TotalInstruments:    len(instruments),
+		UnderlyingsCount:    len(underlyings),
+		ActiveOptionsCount:  len(activeContracts),
+		ExpiredOptionsCount: len(expiredContracts),
+		CallCount:           callCount,
+		PutCount:            putCount,
+		ExpiriesCount:       len(expiriesSet),
+		UnderlyingsSummary:  underlyingsSummary,
+	}
+
+	if err := os.MkdirAll(registryDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create registry dir %s: %w", registryDir, err)
+	}
+
+	underlyingsPath := filepath.Join(registryDir, "underlyings.json")
+	if err := writeJSONPretty(underlyingsPath, underlyings); err != nil {
+		return nil, err
+	}
+
+	activePath := filepath.Join(registryDir, "active_contracts.json")
+	if err := writeJSONPretty(activePath, activeContracts); err != nil {
+		return nil, err
+	}
+
+	expiredPath := filepath.Join(registryDir, "expired_contracts.json")
+	if err := writeJSONPretty(expiredPath, expiredContracts); err != nil {
+		return nil, err
+	}
+
+	instrumentsPath := filepath.Join(registryDir, "instruments.json")
+	if err := writeJSONPretty(instrumentsPath, instruments); err != nil {
+		return nil, err
+	}
+
+	summaryPath := filepath.Join(registryDir, "registry_summary.json")
+	if err := writeJSONPretty(summaryPath, summary); err != nil {
+		return nil, err
+	}
+
+	persisted := 0
+	if opts.PersistDB && s.db != nil && s.underlyingRepo != nil && s.optionRepo != nil {
+		pActive, err := s.persistToPostgres(underlyings, activeContracts)
+		if err != nil {
+			return nil, fmt.Errorf("persist active instruments: %w", err)
+		}
+		persisted += pActive
+
+		if len(expiredContracts) > 0 {
+			pExpired, err := s.persistExpiredContractsToPostgres(underlyings, expiredContracts)
+			if err != nil {
+				return nil, fmt.Errorf("persist expired instruments: %w", err)
+			}
+			persisted += pExpired
+		}
+	}
+
+	return &crawlerdto.FullRegistryResult{
+		Summary:          summary,
+		Instruments:      instruments,
+		Underlyings:      underlyings,
+		ActiveContracts:  activeContracts,
+		ExpiredContracts: expiredContracts,
+		InstrumentsPath:  instrumentsPath,
+		UnderlyingsPath:  underlyingsPath,
+		ActivePath:       activePath,
+		ExpiredPath:      expiredPath,
+		SummaryPath:      summaryPath,
+		PersistedDBRows:  persisted,
+	}, nil
+}
+
 func (s *DiscoveryService) fetchPayload(ctx context.Context, useOffline bool, fixturePath string, disableFallback bool) ([]byte, error) {
 	if useOffline {
 		raw, err := os.ReadFile(fixturePath)
@@ -326,6 +571,59 @@ func (s *DiscoveryService) persistToPostgres(underlyings []crawlerdto.Discovered
 			TSETMCID:          &insCode,
 			IsActive:          true,
 			Status:            "ACTIVE",
+		})
+	}
+
+	if len(entities) == 0 {
+		return 0, nil
+	}
+	return s.optionRepo.SaveBulk(s.db, entities)
+}
+
+func (s *DiscoveryService) persistExpiredContractsToPostgres(underlyings []crawlerdto.DiscoveredUnderlying, contracts []crawlerdto.DiscoveredContract) (int, error) {
+	uaIDByInsCode := make(map[string]uint, len(underlyings))
+	for _, u := range underlyings {
+		insCode := u.InsCode
+		existing, err := s.underlyingRepo.GetBySymbol(s.db, u.Symbol)
+		if err == nil && existing != nil {
+			uaIDByInsCode[insCode] = existing.ID
+		}
+	}
+
+	entities := make([]*entity.OptionContract, 0, len(contracts))
+	for _, c := range contracts {
+		uaID, ok := uaIDByInsCode[c.UaInsCode]
+		if !ok || uaID == 0 {
+			if c.UnderlyingSymbol != "" {
+				if existing, err := s.underlyingRepo.GetBySymbol(s.db, c.UnderlyingSymbol); err == nil && existing != nil {
+					uaID = existing.ID
+				}
+			}
+		}
+		if uaID == 0 {
+			continue
+		}
+		expiry, err := parseTSETMCDate(c.ExpiryDate)
+		if err != nil {
+			continue
+		}
+		var beginPtr *time.Time
+		if b, err := parseTSETMCDate(c.BeginDate); err == nil {
+			beginPtr = &b
+		}
+		insCode := c.InsCode
+		entities = append(entities, &entity.OptionContract{
+			UnderlyingAssetID: uaID,
+			SymbolFA:          c.Symbol,
+			NameFA:            c.Name,
+			ContractType:      strings.ToUpper(c.Side),
+			StrikePrice:       c.StrikePrice,
+			ContractSize:      c.ContractSize,
+			ExpirationDate:    expiry,
+			BeginDate:         beginPtr,
+			TSETMCID:          &insCode,
+			IsActive:          false,
+			Status:            "EXPIRED",
 		})
 	}
 

@@ -38,6 +38,8 @@ data/raw/*
 !data/raw/samples/
 !data/raw/samples/**
 data/processed/
+data/registry/
+data/manifests/
 *.sqlite3
 *.db
 
