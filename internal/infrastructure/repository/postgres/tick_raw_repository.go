@@ -7,7 +7,7 @@ import (
 	"github.com/QuantDevelopers/Backend/internal/domain/entity"
 	domainrepo "github.com/QuantDevelopers/Backend/internal/domain/repository/postgres"
 	"github.com/QuantDevelopers/Backend/internal/infrastructure/database"
-	"gorm.io/gorm"
+	bulk "github.com/QuantDevelopers/Backend/internal/infrastructure/marketdata"
 )
 
 type TickRawRepository struct{}
@@ -27,48 +27,7 @@ func (repo *TickRawRepository) ReplaceDayTicks(
 	tradeDate time.Time,
 	ticks []*entity.TickRaw,
 ) (int, error) {
-	normType := strings.ToUpper(strings.TrimSpace(instrumentType))
-	day := normalizeTradeDay(tradeDate)
-
-	var inserted int
-	err := db.GetDB().Transaction(func(tx *gorm.DB) error {
-		if err := tx.Unscoped().
-			Where("instrument_type = ? AND instrument_id = ? AND trade_date = ?", normType, instrumentID, day).
-			Delete(&entity.TickRaw{}).Error; err != nil {
-			return err
-		}
-
-		if len(ticks) == 0 {
-			return nil
-		}
-
-		batch := make([]*entity.TickRaw, 0, len(ticks))
-		for _, t := range ticks {
-			if t == nil {
-				continue
-			}
-			cloned := *t
-			cloned.ID = 0
-			cloned.InstrumentType = normType
-			cloned.InstrumentID = instrumentID
-			cloned.TradeDate = day
-			batch = append(batch, &cloned)
-		}
-		if len(batch) == 0 {
-			return nil
-		}
-
-		res := tx.CreateInBatches(&batch, 500)
-		if res.Error != nil {
-			return res.Error
-		}
-		inserted = int(res.RowsAffected)
-		return nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	return inserted, nil
+	return bulk.ReplaceRawDay(db.GetDB().Statement.Context, db, instrumentType, instrumentID, normalizeTradeDay(tradeDate), ticks)
 }
 
 func (repo *TickRawRepository) GetByInstrumentAndDate(
